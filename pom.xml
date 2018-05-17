@@ -87,8 +87,6 @@
 
     <modules>
         <module>stateless-auth</module>
-        <module>stateless-csrf</module>
-        <module>stateless-token</module>
     </modules>
 
     <dependencyManagement>
@@ -97,16 +95,6 @@
             <dependency>
                 <groupId>com.networknt</groupId>
                 <artifactId>stateless-auth</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.networknt</groupId>
-                <artifactId>stateless-csrf</artifactId>
-                <version>${project.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.networknt</groupId>
-                <artifactId>stateless-token</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

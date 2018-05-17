@@ -19,6 +19,7 @@ package com.networknt.auth;
 import com.networknt.client.Http2Client;
 import com.networknt.config.Config;
 import com.networknt.exception.ClientException;
+import com.networknt.utility.Constants;
 import io.undertow.Handlers;
 import io.undertow.Undertow;
 import io.undertow.UndertowOptions;
@@ -160,7 +161,7 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
-    public void testWithCode() throws Exception {
+    public void testAuthWithCode() throws Exception {
         final Http2Client client = Http2Client.getInstance();
         final CountDownLatch latch = new CountDownLatch(1);
         final ClientConnection connection;
@@ -185,7 +186,7 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
-    public void testGetWithoutCode() throws Exception {
+    public void testAuthGetWithoutCode() throws Exception {
         final Http2Client client = Http2Client.getInstance();
         final CountDownLatch latch = new CountDownLatch(1);
         final ClientConnection connection;
