@@ -105,9 +105,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /authorization path. Pass to the next handler if path is not matched.
-        if(logger.isDebugEnabled()) logger.debug("exchange path = " + exchange.getRelativePath() + " config path = " + config.getRequestPath());
+        if(logger.isDebugEnabled()) logger.debug("exchange path = " + exchange.getRelativePath() + " config path = " + config.getAuthPath());
 
-        if(exchange.getRelativePath().equals(config.getRequestPath())) {
+        if(exchange.getRelativePath().equals(config.getAuthPath())) {
             // first time authentication and return both access and refresh tokens in cookies
             Deque<String> deque = exchange.getQueryParameters().get(CODE);
             String code = deque == null ? null : deque.getFirst();

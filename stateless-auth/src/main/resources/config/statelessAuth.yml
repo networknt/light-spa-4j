@@ -8,8 +8,8 @@
 enabled: true
 # Once Authorization is done, which path the UI is redirected.
 redirectUri: /special
-# Request path
-requestPath: /authorization
+# Request path for the authorization code handling.
+authPath: /authorization
 # Cookie domain
 cookieDomain: localhost
 # Cookie path

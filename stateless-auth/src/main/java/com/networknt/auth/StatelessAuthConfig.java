@@ -23,7 +23,7 @@ public class StatelessAuthConfig {
     boolean enabled;
     String redirectUri;
     boolean enableHttp2;
-    String requestPath;
+    String authPath;
     String cookieDomain;
     String cookiePath;
     int cookieMaxAge;
@@ -57,9 +57,9 @@ public class StatelessAuthConfig {
         this.enableHttp2 = enableHttp2;
     }
 
-    public String getRequestPath() { return requestPath; }
+    public String getAuthPath() { return authPath; }
 
-    public void setRequestPath(String requestPath) { this.requestPath = requestPath; }
+    public void setAuthPath(String authPath) { this.authPath = authPath; }
 
     public String getCookieDomain() { return cookieDomain; }
 
