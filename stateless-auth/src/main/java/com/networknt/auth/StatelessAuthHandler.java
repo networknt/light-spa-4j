@@ -131,8 +131,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 return;
             }
             setCookies(exchange, response, csrf);
-            exchange.setStatusCode(StatusCodes.FOUND);
-            exchange.getResponseHeaders().put(Headers.LOCATION, config.getRedirectUri());
+            if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
+                exchange.setStatusCode(StatusCodes.FOUND);
+                exchange.getResponseHeaders().put(Headers.LOCATION, config.getRedirectUri());
+            } else {
+                exchange.setStatusCode(StatusCodes.OK);
+            }
             exchange.endExchange();
             return;
         } else {
