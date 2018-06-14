@@ -22,7 +22,6 @@ import com.networknt.config.Config;
 import com.networknt.exception.ExpiredTokenException;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.security.JwtHelper;
-import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.Util;
@@ -33,6 +32,8 @@ import io.undertow.server.handlers.Cookie;
 import io.undertow.server.handlers.CookieImpl;
 import io.undertow.util.Headers;
 import io.undertow.util.StatusCodes;
+
+import org.jose4j.json.internal.json_simple.JSONObject;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.slf4j.Logger;
@@ -251,19 +252,18 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         long expiresIn = response.getExpiresIn();
         // parse the access token.
         JwtClaims claims = null;
-        String jwtUserId, jwtUserType, jwtRoles;
-        jwtUserId = jwtUserType = jwtRoles = null;
+        JSONObject userInfo = new JSONObject();
         try {
             claims = JwtHelper.verifyJwt(accessToken, true);
-            jwtUserId = claims.getStringClaimValue(Constants.USER_ID_STRING);
-            jwtUserType = claims.getStringClaimValue("user_type");
-//            jwtRoles = claims.getStringClaimValue("roles");
-            jwtRoles = String.join(",", claims.getStringListClaimValue("roles"));
+            userInfo.put("roles",claims.getStringListClaimValue("roles").toArray(new String[0]));
+            userInfo.put("userType",claims.getStringClaimValue("user_type"));
+            userInfo.put("userID",claims.getStringClaimValue(Constants.USER_ID_STRING));
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
             return;
         }
+        
         if(logger.isDebugEnabled()) logger.debug("accessToken = " + accessToken + " refreshToken = " + refreshToken + " expiresIn = " + expiresIn);
         // put all the info into a cookie object
         exchange.setResponseCookie(new CookieImpl("accessToken", accessToken)
@@ -279,7 +279,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setHttpOnly(true)
                 .setSecure(config.cookieSecure));
         // this is user info in cookie and it is accessible for Javascript.
-        exchange.setResponseCookie(new CookieImpl("userInfo", "userId:" + jwtUserId + "/userType:" + jwtUserType + "/roles:" + jwtRoles)
+        exchange.setResponseCookie(new CookieImpl("userInfo", userInfo.toString())
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
                 .setMaxAge(config.cookieMaxAge)
