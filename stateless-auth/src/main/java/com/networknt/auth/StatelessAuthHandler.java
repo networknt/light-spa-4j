@@ -279,7 +279,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setHttpOnly(true)
                 .setSecure(config.cookieSecure));
         // this is user info in cookie and it is accessible for Javascript.
-        exchange.setResponseCookie(new CookieImpl("userInfo", "userId:" + jwtUserId + ";userType:" + jwtUserType + ";roles:" + jwtRoles)
+        exchange.setResponseCookie(new CookieImpl("userInfo", "userId:" + jwtUserId + "/userType:" + jwtUserType + "/roles:" + jwtRoles)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
                 .setMaxAge(config.cookieMaxAge)
