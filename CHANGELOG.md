@@ -1,5 +1,13 @@
 # Change Log
 
+## [1.5.15](https://github.com/networknt/light-spa-4j/tree/1.5.15) (2018-06-18)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.14...1.5.15)
+
+**Closed issues:**
+
+- Create another cookie with user information for the web application [\#5](https://github.com/networknt/light-spa-4j/issues/5)
+- change requestPath to authPath in config for authorization code handling [\#4](https://github.com/networknt/light-spa-4j/issues/4)
+
 ## [1.5.14](https://github.com/networknt/light-spa-4j/tree/1.5.14) (2018-05-19)
 **Closed issues:**
 
