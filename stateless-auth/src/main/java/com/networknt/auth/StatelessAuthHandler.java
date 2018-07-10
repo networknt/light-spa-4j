@@ -20,6 +20,7 @@ import com.networknt.audit.AuditHandler;
 import com.networknt.client.oauth.*;
 import com.networknt.config.Config;
 import com.networknt.exception.ExpiredTokenException;
+import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.security.JwtHelper;
 import com.networknt.utility.Constants;
@@ -242,7 +243,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // now let's go to the next handler. The cookies are set for this response already.
             }
             exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
-            next.handleRequest(exchange);
+            Handler.next(exchange, next);
         }
     }
 
