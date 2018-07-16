@@ -240,6 +240,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     return;
                 }
                 setCookies(exchange, response, csrf);
+                jwt = response.getAccessToken();
                 // now let's go to the next handler. The cookies are set for this response already.
             }
             exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
