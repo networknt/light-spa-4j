@@ -19,7 +19,6 @@ package com.networknt.auth;
 import com.networknt.client.Http2Client;
 import com.networknt.config.Config;
 import com.networknt.exception.ClientException;
-import com.networknt.utility.Constants;
 import io.undertow.Handlers;
 import io.undertow.Undertow;
 import io.undertow.UndertowOptions;
@@ -81,8 +80,8 @@ public class StatelessAuthHandlerTest {
     static SSLContext sslContext;
     private static XnioWorker worker;
 
-    private static final String SERVER_KEY_STORE = "tls/server.keystore";
-    private static final String SERVER_TRUST_STORE = "tls/server.truststore";
+    private static final String SERVER_KEY_STORE = "server.keystore";
+    private static final String SERVER_TRUST_STORE = "server.truststore";
     private static final char[] STORE_PASSWORD = "password".toCharArray();
 
     @BeforeAll
@@ -244,7 +243,7 @@ public class StatelessAuthHandlerTest {
         String jwt;
 
         RSAPrivateKey privateKey = (RSAPrivateKey) getPrivateKey(
-                "/config/oauth/primary.jks", "password", "selfsigned");
+                "/config/primary.jks", "password", "selfsigned");
 
         // A JWT is a JWS and/or a JWE with JSON claims as the payload.
         // In this example it is a JWS nested inside a JWE
