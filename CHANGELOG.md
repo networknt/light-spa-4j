@@ -1,5 +1,17 @@
 # Change Log
 
+## [1.5.18](https://github.com/networknt/light-spa-4j/tree/1.5.18) (2018-08-16)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.17...1.5.18)
+
+**Closed issues:**
+
+- flatten the config files into the same directory for k8s [\#9](https://github.com/networknt/light-spa-4j/issues/9)
+- upgrade to undertow 2.0.11.Final [\#8](https://github.com/networknt/light-spa-4j/issues/8)
+- cookies not overwritten [\#7](https://github.com/networknt/light-spa-4j/issues/7)
+
+## [1.5.17](https://github.com/networknt/light-spa-4j/tree/1.5.17) (2018-07-15)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.16...1.5.17)
+
 ## [1.5.16](https://github.com/networknt/light-spa-4j/tree/1.5.16) (2018-06-19)
 [Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.15...1.5.16)
 
