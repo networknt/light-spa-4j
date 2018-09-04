@@ -22,6 +22,7 @@ import com.networknt.config.Config;
 import com.networknt.exception.ExpiredTokenException;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
+import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.security.JwtHelper;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
@@ -33,7 +34,6 @@ import io.undertow.server.handlers.Cookie;
 import io.undertow.server.handlers.CookieImpl;
 import io.undertow.util.Headers;
 import io.undertow.util.StatusCodes;
-
 import org.jose4j.json.internal.json_simple.JSONObject;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
@@ -203,7 +203,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
             // verify the csrf token
             // get CSRF token from the header. Return error is it doesn't exist.
-            String headerCsrf = exchange.getRequestHeaders().getFirst(Constants.CSRF_TOKEN);
+            String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
             if(headerCsrf == null || headerCsrf.trim().length() == 0) {
                 setExchangeStatus(exchange, CSRF_HEADER_MISSING);
                 return;
