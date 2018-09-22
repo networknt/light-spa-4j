@@ -1,5 +1,15 @@
 # Change Log
 
+## [1.5.19](https://github.com/networknt/light-spa-4j/tree/1.5.19) (2018-09-22)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.18...1.5.19)
+
+**Closed issues:**
+
+- switch to http-string module for HttpString headers constants [\#11](https://github.com/networknt/light-spa-4j/issues/11)
+- Give another option to send csrf token to the SPA with url fragment [\#10](https://github.com/networknt/light-spa-4j/issues/10)
+- Forward new jwt token to service after expiry [\#6](https://github.com/networknt/light-spa-4j/issues/6)
+- Add ignored paths to csrf validation [\#3](https://github.com/networknt/light-spa-4j/issues/3)
+
 ## [1.5.18](https://github.com/networknt/light-spa-4j/tree/1.5.18) (2018-08-16)
 [Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.17...1.5.18)
 
