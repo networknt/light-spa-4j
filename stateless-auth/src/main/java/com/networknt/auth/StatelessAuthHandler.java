@@ -23,7 +23,9 @@ import com.networknt.exception.ExpiredTokenException;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
+import com.networknt.monad.Result;
 import com.networknt.security.JwtHelper;
+import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.Util;
@@ -124,15 +126,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             TokenRequest request = new AuthorizationCodeRequest();
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
-            TokenResponse response = OauthHelper.getToken(request);
-            if(response != null && response.getAccessToken() == null) {
+            Result<TokenResponse> result = OauthHelper.getToken(request);
+            if(result.isFailure()) {
+                Status status = result.getError();
                 // we don't have access token in the response. Must be a status object.
-                exchange.setStatusCode(response.getStatusCode());
-                exchange.getResponseSender().send(response.superString());
-                logger.error(response.superString());
+                exchange.setStatusCode(status.getStatusCode());
+                exchange.getResponseSender().send(status.toString());
+                logger.error(status.toString());
                 return;
             }
-            setCookies(exchange, response, csrf);
+            setCookies(exchange, result.getResult(), csrf);
             if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
                 exchange.setStatusCode(StatusCodes.FOUND);
                 exchange.getResponseHeaders().put(Headers.LOCATION, config.getRedirectUri());
@@ -231,14 +234,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     if(logger.isDebugEnabled()) logger.debug("refreshToken = " + refreshToken + " csrf = " + csrf);
                     ((RefreshTokenRequest)tokenRequest).setRefreshToken(refreshToken);
                 }
-                TokenResponse response = OauthHelper.getToken(tokenRequest);
-                if(response != null && response.getAccessToken() == null) {
+                Result<TokenResponse> result = OauthHelper.getToken(tokenRequest);
+                if(result.isFailure()) {
+                    Status status = result.getError();
                     // we don't have access token in the response. Must be a status object.
-                    exchange.setStatusCode(response.getStatusCode());
-                    exchange.getResponseSender().send(response.superString());
-                    logger.error(response.superString());
+                    exchange.setStatusCode(status.getStatusCode());
+                    exchange.getResponseSender().send(status.toString());
+                    logger.error(status.toString());
                     return;
                 }
+                TokenResponse response = result.getResult();
                 setCookies(exchange, response, csrf);
                 jwt = response.getAccessToken();
                 // now let's go to the next handler. The cookies are set for this response already.
