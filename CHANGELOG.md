@@ -1,5 +1,15 @@
 # Change Log
 
+## [1.5.29](https://github.com/networknt/light-spa-4j/tree/1.5.29) (2019-02-16)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.28...1.5.29)
+
+**Implemented enhancements:**
+
+- Feat/light-router/\#41 exception handling [\#12](https://github.com/networknt/light-spa-4j/pull/12) ([BalloonWen](https://github.com/BalloonWen))
+
+## [1.5.28](https://github.com/networknt/light-spa-4j/tree/1.5.28) (2019-01-13)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.27...1.5.28)
+
 ## [1.5.27](https://github.com/networknt/light-spa-4j/tree/1.5.27) (2019-01-12)
 [Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.25...1.5.27)
 
