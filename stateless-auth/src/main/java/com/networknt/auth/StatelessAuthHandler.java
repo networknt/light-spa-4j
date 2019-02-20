@@ -126,7 +126,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             TokenRequest request = new AuthorizationCodeRequest();
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
-            Result<TokenResponse> result = OauthHelper.getToken(request);
+            Result<TokenResponse> result = OauthHelper.getTokenResult(request);
             if(result.isFailure()) {
                 Status status = result.getError();
                 // we don't have access token in the response. Must be a status object.
@@ -234,7 +234,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     if(logger.isDebugEnabled()) logger.debug("refreshToken = " + refreshToken + " csrf = " + csrf);
                     ((RefreshTokenRequest)tokenRequest).setRefreshToken(refreshToken);
                 }
-                Result<TokenResponse> result = OauthHelper.getToken(tokenRequest);
+                Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
                 if(result.isFailure()) {
                     Status status = result.getError();
                     // we don't have access token in the response. Must be a status object.
