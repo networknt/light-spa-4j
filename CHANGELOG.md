@@ -1,5 +1,12 @@
 # Change Log
 
+## [1.5.30](https://github.com/networknt/light-spa-4j/tree/1.5.30) (2019-02-21)
+[Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.29...1.5.30)
+
+**Fixed bugs:**
+
+- Fixing backwards incompatible interface change in OauthHelper getToken and getTokenFromSaml [\#13](https://github.com/networknt/light-spa-4j/pull/13) ([BalloonWen](https://github.com/BalloonWen))
+
 ## [1.5.29](https://github.com/networknt/light-spa-4j/tree/1.5.29) (2019-02-16)
 [Full Changelog](https://github.com/networknt/light-spa-4j/compare/1.5.28...1.5.29)
 
