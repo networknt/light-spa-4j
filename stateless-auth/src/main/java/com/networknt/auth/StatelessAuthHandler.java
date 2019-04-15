@@ -126,7 +126,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             TokenRequest request = new AuthorizationCodeRequest();
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
-            Result<TokenResponse> result = OauthHelper.getTokenResult(request);
+            Jwt.Key cacheKey = new Jwt.Key();
+            cacheKey.setAuthorizationCode(code);
+            Result<Jwt> result = TokenManager.getInstance().getJwt(cacheKey, request);
             if(result.isFailure()) {
                 Status status = result.getError();
                 // we don't have access token in the response. Must be a status object.
@@ -229,12 +231,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 TokenRequest tokenRequest = new RefreshTokenRequest();
                 tokenRequest.setCsrf(csrf);
                 Cookie cookie = cookies.get("refreshToken");
+                Jwt.Key cacheKey = new Jwt.Key();
                 if(cookie != null) {
                     String refreshToken = cookie.getValue();
-                    if(logger.isDebugEnabled()) logger.debug("refreshToken = " + refreshToken + " csrf = " + csrf);
-                    ((RefreshTokenRequest)tokenRequest).setRefreshToken(refreshToken);
+                    if (logger.isDebugEnabled()) logger.debug("refreshToken = " + refreshToken + " csrf = " + csrf);
+                    ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
+                    cacheKey.setRefreshToken(refreshToken);
                 }
-                Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
+                Result<Jwt> result = TokenManager.getInstance().getJwt(cacheKey, tokenRequest);
                 if(result.isFailure()) {
                     Status status = result.getError();
                     // we don't have access token in the response. Must be a status object.
@@ -243,9 +247,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     logger.error(status.toString());
                     return;
                 }
-                TokenResponse response = result.getResult();
-                setCookies(exchange, response, csrf);
-                jwt = response.getAccessToken();
+                setCookies(exchange, result.getResult(), csrf);
+                jwt = result.getResult().getJwt();
                 // now let's go to the next handler. The cookies are set for this response already.
             }
             exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
@@ -253,10 +256,10 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
     }
 
-    private void setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
-        String accessToken = response.getAccessToken();
-        String refreshToken = response.getRefreshToken();
-        long expiresIn = response.getExpiresIn();
+    private void setCookies(final HttpServerExchange exchange, Jwt jwt, String csrf) throws Exception {
+        String accessToken = jwt.getJwt();
+        String refreshToken = jwt.getRefreshToken();
+        long expireTime = jwt.getExpire();
         // parse the access token.
         JwtClaims claims = null;
         JSONObject userInfo = new JSONObject();
@@ -271,7 +274,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             return;
         }
         
-        if(logger.isDebugEnabled()) logger.debug("accessToken = " + accessToken + " refreshToken = " + refreshToken + " expiresIn = " + expiresIn);
+        if(logger.isDebugEnabled()) logger.debug("accessToken = " + accessToken + " refreshToken = " + refreshToken + " expireTime = " + expireTime);
         // put all the info into a cookie object
         exchange.setResponseCookie(new CookieImpl("accessToken", accessToken)
                 .setDomain(config.cookieDomain)
