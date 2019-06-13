@@ -25,7 +25,7 @@ import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtHelper;
 import com.networknt.status.Status;
-import com.networknt.status.exception.ExpiredTokenException;
+import com.networknt.exception.ExpiredTokenException;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.Util;
