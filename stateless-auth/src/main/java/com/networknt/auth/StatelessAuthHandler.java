@@ -24,7 +24,7 @@ import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
-import com.networknt.security.JwtHelper;
+import com.networknt.security.JwtVerifier;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
@@ -96,9 +96,25 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
     private static final String REFRESH_TOKEN_RESPONSE_EMPTY = "ERR10037";
+    private static final String OPENAPI_SECURITY_CONFIG = "openapi-security";
+    private static final String SWAGGER_SECURITY_CONFIG = "swagger-security";
+    private static final String GRAPHQL_SECURITY_CONFIG = "graphql-security";
+    private static final String HYBRID_SECURITY_CONFIG = "hybrid-security";
 
     public static StatelessAuthConfig config =
             (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(CONFIG_NAME, StatelessAuthConfig.class);
+    static Map<String, Object> securityConfig;
+    static JwtVerifier jwtVerifier;
+    static {
+        // The SPA server can be based on OpenAPI, GraphQL or Hybrid, check if openapi-security.yml exists first
+        securityConfig = Config.getInstance().getJsonMapConfig(OPENAPI_SECURITY_CONFIG);
+        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(SWAGGER_SECURITY_CONFIG);
+        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(GRAPHQL_SECURITY_CONFIG);
+        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(HYBRID_SECURITY_CONFIG);
+        // fallback to generic security.yml
+        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(JwtVerifier.SECURITY_CONFIG);
+        jwtVerifier = new JwtVerifier(securityConfig);
+    }
 
     private volatile HttpHandler next;
 
@@ -169,7 +185,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             boolean jwtExpired = false;
             try {
                 // verify jwt format, signature and expiration
-                claims = JwtHelper.verifyJwt(jwt, false);
+                claims = jwtVerifier.verifyJwt(jwt, false, true);
                 // save some jwt payload into the exchange attachment for AuditHandler if it enabled.
                 Map<String, Object> auditInfo = exchange.getAttachment(AuditHandler.AUDIT_INFO);
                 // In normal case, the auditInfo shouldn't be null as it is created by OpenApiHandler with
@@ -193,7 +209,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // renew the access token with refresh token first in this case.
                 // first we need to double check the csrf token in header and csrf token in jwt are matched.
                 try {
-                    claims = JwtHelper.verifyJwt(jwt, true);
+                    claims = jwtVerifier.verifyJwt(jwt, true, true);
                     jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
                 } catch (InvalidJwtException e) {
                     logger.error("Exception: ", e);
@@ -261,7 +277,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         JwtClaims claims = null;
         JSONObject userInfo = new JSONObject();
         try {
-            claims = JwtHelper.verifyJwt(accessToken, true);
+            claims = jwtVerifier.verifyJwt(accessToken, true, true);
             userInfo.put("roles",claims.getStringListClaimValue("roles").toArray(new String[0]));
             userInfo.put("userType",claims.getStringClaimValue("user_type"));
             userInfo.put("userID",claims.getStringClaimValue(Constants.USER_ID_STRING));
