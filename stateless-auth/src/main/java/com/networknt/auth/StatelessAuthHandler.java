@@ -16,11 +16,11 @@
 
 package com.networknt.auth;
 
-import com.networknt.audit.AuditHandler;
 import com.networknt.client.oauth.*;
 import com.networknt.config.Config;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
+import com.networknt.httpstring.AttachmentConstants;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
@@ -187,12 +187,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // verify jwt format, signature and expiration
                 claims = jwtVerifier.verifyJwt(jwt, false, true);
                 // save some jwt payload into the exchange attachment for AuditHandler if it enabled.
-                Map<String, Object> auditInfo = exchange.getAttachment(AuditHandler.AUDIT_INFO);
+                Map<String, Object> auditInfo = exchange.getAttachment(AttachmentConstants.AUDIT_INFO);
                 // In normal case, the auditInfo shouldn't be null as it is created by OpenApiHandler with
                 // endpoint and swaggerOperation available. This handler will enrich the auditInfo.
                 if(auditInfo == null) {
                     auditInfo = new HashMap<>();
-                    exchange.putAttachment(AuditHandler.AUDIT_INFO, auditInfo);
+                    exchange.putAttachment(AttachmentConstants.AUDIT_INFO, auditInfo);
                 }
                 auditInfo.put(Constants.CLIENT_ID_STRING, claims.getStringClaimValue(Constants.CLIENT_ID_STRING));
                 auditInfo.put(Constants.USER_ID_STRING, claims.getStringClaimValue(Constants.USER_ID_STRING));
