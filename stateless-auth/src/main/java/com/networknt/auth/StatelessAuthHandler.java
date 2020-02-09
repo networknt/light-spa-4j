@@ -275,12 +275,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         long expiresIn = response.getExpiresIn();
         // parse the access token.
         JwtClaims claims = null;
-        JSONObject userInfo = new JSONObject();
+        String[] roles = null;
+        String userType = null;
+        String userId = null;
         try {
             claims = jwtVerifier.verifyJwt(accessToken, true, true);
-            userInfo.put("roles",claims.getStringListClaimValue(Constants.ROLES_STRING).toArray(new String[0]));
-            userInfo.put("userType",claims.getStringClaimValue(Constants.USER_TYPE_STRING));
-            userInfo.put("userId",claims.getStringClaimValue(Constants.USER_ID_STRING));
+            roles = claims.getStringListClaimValue(Constants.ROLES_STRING).toArray(new String[0]);
+            userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
+            userId = claims.getStringClaimValue(Constants.USER_ID_STRING);
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
@@ -302,12 +304,28 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setHttpOnly(true)
                 .setSecure(config.cookieSecure));
         // this is user info in cookie and it is accessible for Javascript.
-        exchange.setResponseCookie(new CookieImpl("userInfo", userInfo.toString())
+        exchange.setResponseCookie(new CookieImpl("userId", userId)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
                 .setMaxAge(config.cookieMaxAge)
                 .setHttpOnly(false)
                 .setSecure(config.cookieSecure));
+        if(userType != null) {
+            exchange.setResponseCookie(new CookieImpl("userType", userType)
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setMaxAge(config.cookieMaxAge)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure));
+        }
+        if(roles != null && roles.length > 0) {
+            exchange.setResponseCookie(new CookieImpl("roles", roles.toString())
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setMaxAge(config.cookieMaxAge)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure));
+        }
         // this is another csrf token in cookie and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(Constants.CSRF_STRING, csrf)
                 .setDomain(config.cookieDomain)
