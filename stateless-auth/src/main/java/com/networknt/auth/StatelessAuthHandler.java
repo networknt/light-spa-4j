@@ -278,9 +278,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         JSONObject userInfo = new JSONObject();
         try {
             claims = jwtVerifier.verifyJwt(accessToken, true, true);
-            userInfo.put("roles",claims.getStringListClaimValue("roles").toArray(new String[0]));
-            userInfo.put("userType",claims.getStringClaimValue("user_type"));
-            userInfo.put("userID",claims.getStringClaimValue(Constants.USER_ID_STRING));
+            userInfo.put("roles",claims.getStringListClaimValue(Constants.ROLES_STRING).toArray(new String[0]));
+            userInfo.put("userType",claims.getStringClaimValue(Constants.USER_TYPE_STRING));
+            userInfo.put("userId",claims.getStringClaimValue(Constants.USER_ID_STRING));
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
