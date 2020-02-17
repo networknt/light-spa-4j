@@ -22,8 +22,10 @@ package com.networknt.auth;
 public class StatelessAuthConfig {
     boolean enabled;
     String redirectUri;
+    String denyUri;
     boolean enableHttp2;
     String authPath;
+    String denyPath;
     String cookieDomain;
     String cookiePath;
     int cookieMaxAge;
@@ -90,4 +92,20 @@ public class StatelessAuthConfig {
     public boolean isCookieSecure() { return cookieSecure; }
 
     public void setCookieSecure(boolean cookieSecure) { this.cookieSecure = cookieSecure; }
+
+    public String getDenyUri() {
+        return denyUri;
+    }
+
+    public void setDenyUri(String denyUri) {
+        this.denyUri = denyUri;
+    }
+
+    public String getDenyPath() {
+        return denyPath;
+    }
+
+    public void setDenyPath(String denyPath) {
+        this.denyPath = denyPath;
+    }
 }

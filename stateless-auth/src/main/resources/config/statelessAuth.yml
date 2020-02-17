@@ -8,9 +8,13 @@
 enabled: true
 # Once Authorization is done, which path the UI is redirected.
 redirectUri: /special
+# An optional redirect uri if the user deny or cancel the authorization on the Consent page. Default to redirectUri if missing.
+denyUri: /
 # Request path for the authorization code handling.
 authPath: /authorization
-# Cookie domain
+# Request path for the deny authorization handling to remove HttpOnly access-token and other cookies
+denyPath: /deny
+# Cookie domain which is the original site
 cookieDomain: localhost
 # Cookie path
 cookiePath: /
