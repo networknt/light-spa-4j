@@ -339,5 +339,11 @@ public class StatelessAuthHandlerTest {
         return sslContext;
     }
 
+    @Test
+    public void testArrayConverer() {
+        String[] scopes = {"abc", "efg"};
+        String s = Arrays.toString(scopes);
+        System.out.println(s);
+    }
 
 }
