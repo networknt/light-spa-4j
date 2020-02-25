@@ -25,7 +25,7 @@ public class StatelessAuthConfig {
     String denyUri;
     boolean enableHttp2;
     String authPath;
-    String denyPath;
+    String logoutPath;
     String cookieDomain;
     String cookiePath;
     int cookieMaxAge;
@@ -101,11 +101,11 @@ public class StatelessAuthConfig {
         this.denyUri = denyUri;
     }
 
-    public String getDenyPath() {
-        return denyPath;
+    public String getLogoutPath() {
+        return logoutPath;
     }
 
-    public void setDenyPath(String denyPath) {
-        this.denyPath = denyPath;
+    public void setLogoutPath(String logoutPath) {
+        this.logoutPath = logoutPath;
     }
 }

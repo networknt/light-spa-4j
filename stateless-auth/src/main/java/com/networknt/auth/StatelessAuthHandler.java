@@ -169,7 +169,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 exchange.endExchange();
             }
             return;
-        } else if (exchange.getRelativePath().equals(config.getDenyPath())) {
+        } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
             removeCookies(exchange);
             exchange.endExchange();
             return;
