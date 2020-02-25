@@ -12,8 +12,8 @@ redirectUri: /special
 denyUri: /
 # Request path for the authorization code handling.
 authPath: /authorization
-# Request path for the deny authorization handling to remove HttpOnly access-token and other cookies
-denyPath: /deny
+# Request path for the logout handling to remove HttpOnly access-token and other cookies
+logoutPath: /logout
 # Cookie domain which is the original site
 cookieDomain: localhost
 # Cookie path
