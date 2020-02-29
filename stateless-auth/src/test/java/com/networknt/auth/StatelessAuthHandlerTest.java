@@ -181,7 +181,7 @@ public class StatelessAuthHandlerTest {
             IoUtils.safeClose(connection);
         }
         int statusCode = reference.get().getResponseCode();
-        Assertions.assertEquals(StatusCodes.FOUND, statusCode);
+        Assertions.assertEquals(StatusCodes.OK, statusCode);
     }
 
     @Test
