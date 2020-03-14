@@ -402,7 +402,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure));
         }
         if(roles != null && roles.length > 0) {
-            exchange.setResponseCookie(new CookieImpl(Constants.ROLES_STRING, roles.toString())
+            StringJoiner joiner = new StringJoiner(" ");
+            for(int i = 0; i < roles.length; i++) {
+                joiner.add(roles[i]);
+            }
+            exchange.setResponseCookie(new CookieImpl(Constants.ROLES_STRING, joiner.toString())
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(config.cookieMaxAge)
