@@ -186,10 +186,10 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if(logger.isDebugEnabled()) logger.debug("jwt = " + jwt);
             // if jwt is null, return error.
             if(jwt == null || jwt.trim().length() == 0) {
-                // this is session expired. Need to redirect to login page.
-                exchange.setStatusCode(StatusCodes.FOUND);
-                exchange.getResponseHeaders().put(Headers.LOCATION, config.getCookieTimeoutUri());
-                exchange.endExchange();
+                // this is session expired. Or the endpoint that is trying to access doesn't need a token
+                // for example, in the light-portal command side, createUser doesn't need a token. let it go
+                // to the service and an error will be back if the service does require a token.
+                Handler.next(exchange, next);
                 return;
             }
 
