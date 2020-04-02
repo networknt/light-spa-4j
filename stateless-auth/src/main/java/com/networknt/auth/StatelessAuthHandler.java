@@ -356,14 +356,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         String refreshToken = response.getRefreshToken();
         // parse the access token.
         JwtClaims claims = null;
-        String[] roles = null;
+        String roles = null;
         String userType = null;
         String userId = null;
         // The scopes list is returned and will be part of the response.
         List<String> scopes = null;
         try {
             claims = jwtVerifier.verifyJwt(accessToken, true, true);
-            roles = claims.getStringListClaimValue(Constants.ROLES_STRING).toArray(new String[0]);
+            roles = claims.getStringClaimValue(Constants.ROLES_STRING);
             userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
             userId = claims.getStringClaimValue(Constants.USER_ID_STRING);
             scopes = claims.getStringListClaimValue(SCOPE);
@@ -401,12 +401,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setHttpOnly(false)
                     .setSecure(config.cookieSecure));
         }
-        if(roles != null && roles.length > 0) {
-            StringJoiner joiner = new StringJoiner(" ");
-            for(int i = 0; i < roles.length; i++) {
-                joiner.add(roles[i]);
-            }
-            exchange.setResponseCookie(new CookieImpl(Constants.ROLES_STRING, joiner.toString())
+        if(roles != null) {
+            exchange.setResponseCookie(new CookieImpl(Constants.ROLES_STRING, roles)
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(config.cookieMaxAge)
