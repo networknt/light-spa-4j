@@ -28,7 +28,6 @@ public class StatelessAuthConfig {
     String logoutPath;
     String cookieDomain;
     String cookiePath;
-    int cookieMaxAge;
     String cookieTimeoutUri;
     boolean cookieSecure;
 
@@ -75,14 +74,6 @@ public class StatelessAuthConfig {
 
     public void setCookiePath(String cookiePath) {
         this.cookiePath = cookiePath;
-    }
-
-    public int getCookieMaxAge() {
-        return cookieMaxAge;
-    }
-
-    public void setCookieMaxAge(int cookieMaxAge) {
-        this.cookieMaxAge = cookieMaxAge;
     }
 
     public String getCookieTimeoutUri() { return cookieTimeoutUri; }

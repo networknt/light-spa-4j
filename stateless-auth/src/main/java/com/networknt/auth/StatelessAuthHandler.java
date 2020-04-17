@@ -50,26 +50,26 @@ import java.util.*;
  * client.yml and secret.yml config files. Once the tokens are received, they will be sent to the browser
  * with cookies immediately.
  *
- * This middleware handler must be place before StatelessCsrfHandler as the request doesn't have any CSRF
- * header yet. After this action, all subsequent requests from the browser will have jwt token in cookies
- * and CSRF token in headers.
+ * This middleware handler also handles CSRF token in the header to prevent CSRF attack. After this action,
+ * all subsequent requests from the browser will have jwt token in cookies and a CSRF token in headers.
  *
  * This handler get the access token and expiresIn from cookie. If the token is about to expire, renew it.
- * Next the access token will be parsed and put into the auditInfo object so that StatelessCsrfHandler can
+ * Next the access token will be parsed and put into the auditInfo object so that subsequent logic can
  * compare the csrf token from the jwt with the one from header.
  *
- * This handler must be injected after StatelessAuthHandler and before StatelessCsrfHandler.
+ * This handler usually will be used on the light-router and it must be injected after the CORS handler or tracing
+ * handler is CORS is not enabled.
  *
  * If token does not exist or is not matched, an error will be returned. For the stateless SPA application,
  * the jwt access token is passed in a cookie instead of normal API to API calls with jwt token in Authorization
  * header.
  *
- * If the token is expired, it will use the refersh token to renew the access token and put both new access token
+ * If the token is expired, it will use the refresh token to renew the access token and put both new access token
  * and refresh token into the response cookies in the same request.
  *
  * This is a handler that checks if CSRF token exists in the header for services exposed to Single Page
  * Application running on browsers. Normally, this handler only needs to be injected on the services in
- * the DMZ. For example aggregators or light-router to aggregate calls to multiple services or router
+ * the DMZ. For example, an aggregator or light-router to aggregate calls to multiple services or router
  * calls to multiple services from internal network.
  *
  * It compares the token from header to the token inside the JWT to ensure that it matches. If token does
@@ -77,9 +77,7 @@ import java.util.*;
  * access token is passed in a cookie instead of normal API to API calls with jwt token in Authorization
  * header.
  *
- * This handler is a middleware handler and must be injected in service.yml if needed. When this handler
- * is used, you have to use StatelessAuthHandler to send the access token to the SPA running on the browser
- * in order to work.
+ * This handler is a middleware handler and must be injected in handler.yml if needed.
  *
  * @author Steve Hu
  */
@@ -181,105 +179,58 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 Cookie cookie = cookies.get(ACCESS_TOKEN);
                 if(cookie != null) {
                     jwt = cookie.getValue();
+                    // verify the jwt without caring about expiration and compare csrf token
+                    JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
+                    String jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
+                    // get csrf token from the header. Return error is it doesn't exist.
+                    String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
+                    if(headerCsrf == null || headerCsrf.trim().length() == 0) {
+                        setExchangeStatus(exchange, CSRF_HEADER_MISSING);
+                        return;
+                    }
+                    // verify csrf from jwt token in httpOnly cookie
+                    if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
+                        setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
+                        return;
+                    }
+                    if(logger.isDebugEnabled()) logger.debug("headerCsrf = " + headerCsrf + " jwtCsrf = " + jwtCsrf);
+                    if(!headerCsrf.equals(jwtCsrf)) {
+                        setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                        return;
+                    }
+                } else {
+                    // renew the token and set the cookies
+                    jwt = renewToken(exchange, cookies.get(REFRESH_TOKEN));
                 }
             }
             if(logger.isDebugEnabled()) logger.debug("jwt = " + jwt);
-            // if jwt is null, return error.
-            if(jwt == null || jwt.trim().length() == 0) {
-                // this is session expired. Or the endpoint that is trying to access doesn't need a token
-                // for example, in the light-portal command side, createUser doesn't need a token. let it go
-                // to the service and an error will be back if the service does require a token.
-                Handler.next(exchange, next);
-                return;
-            }
-
-            // parse the access token.
-            JwtClaims claims = null;
-            boolean jwtExpired = false;
-            try {
-                // verify jwt format, signature and expiration
-                claims = jwtVerifier.verifyJwt(jwt, false, true);
-                // save some jwt payload into the exchange attachment for AuditHandler if it enabled.
-                Map<String, Object> auditInfo = exchange.getAttachment(AttachmentConstants.AUDIT_INFO);
-                // In normal case, the auditInfo shouldn't be null as it is created by OpenApiHandler with
-                // endpoint and swaggerOperation available. This handler will enrich the auditInfo.
-                if(auditInfo == null) {
-                    auditInfo = new HashMap<>();
-                    exchange.putAttachment(AttachmentConstants.AUDIT_INFO, auditInfo);
-                }
-                auditInfo.put(Constants.CLIENT_ID_STRING, claims.getStringClaimValue(Constants.CLIENT_ID_STRING));
-                auditInfo.put(Constants.USER_ID_STRING, claims.getStringClaimValue(Constants.USER_ID_STRING));
-                auditInfo.put(Constants.SUBJECT_CLAIMS, claims);
-            } catch (InvalidJwtException e) {
-                logger.error("Exception: ", e);
-                setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
-                return;
-            } catch (ExpiredTokenException e) {
-                jwtExpired = true;
-            }
-            String jwtCsrf = null;
-            if(jwtExpired) {
-                // renew the access token with refresh token first in this case.
-                // first we need to double check the csrf token in header and csrf token in jwt are matched.
-                try {
-                    claims = jwtVerifier.verifyJwt(jwt, true, true);
-                    jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
-                } catch (InvalidJwtException e) {
-                    logger.error("Exception: ", e);
-                    setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
-                    return;
-                }
-            } else {
-                jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
-            }
-
-            // verify the csrf token
-            // get CSRF token from the header. Return error is it doesn't exist.
-            String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-            if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                setExchangeStatus(exchange, CSRF_HEADER_MISSING);
-                return;
-            }
-            // verify csrf from jwt token in httpOnly cookie
-            if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
-                setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
-                return;
-            }
-            if(logger.isDebugEnabled()) logger.debug("headerCsrf = " + headerCsrf + " jwtCsrf = " + jwtCsrf);
-            if(!headerCsrf.equals(jwtCsrf)) {
-                setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
-                return;
-            }
-            // complete csrf token verification
-
-            if(jwtExpired) {
-                // renew token here. First need to get refersh token from cookie
-                String csrf = Util.getUUID();
-                TokenRequest tokenRequest = new RefreshTokenRequest();
-                tokenRequest.setCsrf(csrf);
-                Cookie cookie = cookies.get(REFRESH_TOKEN);
-                if(cookie != null) {
-                    String refreshToken = cookie.getValue();
-                    if(logger.isDebugEnabled()) logger.debug("refreshToken = " + refreshToken + " csrf = " + csrf);
-                    ((RefreshTokenRequest)tokenRequest).setRefreshToken(refreshToken);
-                }
-                Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
-                if(result.isFailure()) {
-                    Status status = result.getError();
-                    // we don't have access token in the response. Must be a status object.
-                    exchange.setStatusCode(status.getStatusCode());
-                    exchange.getResponseSender().send(status.toString());
-                    logger.error(status.toString());
-                    return;
-                }
-                TokenResponse response = result.getResult();
-                setCookies(exchange, response, csrf);
-                jwt = response.getAccessToken();
-                // now let's go to the next handler. The cookies are set for this response already.
-            }
-            exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
+            if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
+            // if there is no jwt and refresh token available in the cookies, the user not logged in or
+            // the session is expired. Or the endpoint that is trying to access doesn't need a token
+            // for example, in the light-portal command side, createUser doesn't need a token. let it go
+            // to the service and an error will be back if the service does require a token.
             Handler.next(exchange, next);
         }
+    }
+
+    private String renewToken(HttpServerExchange exchange, Cookie cookie) throws Exception {
+        String jwt = null;
+        if(cookie != null) {
+            String refreshToken = cookie.getValue();
+            if(refreshToken != null) {
+                TokenRequest tokenRequest = new RefreshTokenRequest();
+                String csrf = Util.getUUID();
+                tokenRequest.setCsrf(csrf);
+                ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
+                Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
+                if(result.isSuccess()) {
+                    TokenResponse response = result.getResult();
+                    setCookies(exchange, response, csrf);
+                    jwt = response.getAccessToken();
+                }
+            }
+        }
+        return jwt;
     }
 
     private void removeCookies(final HttpServerExchange exchange) {
@@ -354,6 +305,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
+        String remember = response.getRemember();
+        int expiresIn = (int)response.getExpiresIn(); // used to set the cookie max age so that there is no chance for expired jwt.
         // parse the access token.
         JwtClaims claims = null;
         String roles = null;
@@ -377,27 +330,27 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         exchange.setResponseCookie(new CookieImpl(ACCESS_TOKEN, accessToken)
                 .setDomain(config.cookieDomain)
                 .setPath(config.getCookiePath())
-                .setMaxAge(config.cookieMaxAge)
+                .setMaxAge(expiresIn)
                 .setHttpOnly(true)
                 .setSecure(config.cookieSecure));
         exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
                 .setDomain(config.cookieDomain)
                 .setPath(config.getCookiePath())
-                .setMaxAge(config.cookieMaxAge)
+                .setMaxAge((remember == null || remember.equals("N")) ? expiresIn : 7776000)  // 90 days if remember is "Y"
                 .setHttpOnly(true)
                 .setSecure(config.cookieSecure));
         // this is user info in cookie and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(USER_ID, userId)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
-                .setMaxAge(config.cookieMaxAge)
+                .setMaxAge(expiresIn)
                 .setHttpOnly(false)
                 .setSecure(config.cookieSecure));
         if(userType != null) {
             exchange.setResponseCookie(new CookieImpl(USER_TYPE, userType)
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
-                    .setMaxAge(config.cookieMaxAge)
+                    .setMaxAge(expiresIn)
                     .setHttpOnly(false)
                     .setSecure(config.cookieSecure));
         }
@@ -405,7 +358,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             exchange.setResponseCookie(new CookieImpl(Constants.ROLES_STRING, roles)
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
-                    .setMaxAge(config.cookieMaxAge)
+                    .setMaxAge(expiresIn)
                     .setHttpOnly(false)
                     .setSecure(config.cookieSecure));
         }
@@ -413,7 +366,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         exchange.setResponseCookie(new CookieImpl(Constants.CSRF_STRING, csrf)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
-                .setMaxAge(config.cookieMaxAge)
+                .setMaxAge(expiresIn)
                 .setHttpOnly(false)
                 .setSecure(config.cookieSecure));
         return scopes;
