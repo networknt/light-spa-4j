@@ -198,6 +198,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                         setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
                         return;
                     }
+                    // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
+                    // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
+                    // per minute will make the session continue until the browser tab is closed.
+                    if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
+                        jwt = renewToken(exchange, cookies.get(REFRESH_TOKEN));
+                    }
                 } else {
                     // renew the token and set the cookies
                     jwt = renewToken(exchange, cookies.get(REFRESH_TOKEN));
