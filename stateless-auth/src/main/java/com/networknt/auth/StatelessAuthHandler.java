@@ -35,6 +35,7 @@ import io.undertow.server.HttpHandler;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.server.handlers.Cookie;
 import io.undertow.server.handlers.CookieImpl;
+import io.undertow.server.handlers.CookieSameSiteMode;
 import io.undertow.util.Headers;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
@@ -338,12 +339,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setPath(config.getCookiePath())
                 .setMaxAge(expiresIn)
                 .setHttpOnly(true)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
         exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
                 .setDomain(config.cookieDomain)
                 .setPath(config.getCookiePath())
                 .setMaxAge((remember == null || remember.equals("N")) ? expiresIn : 7776000)  // 90 days if remember is "Y"
                 .setHttpOnly(true)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
         // this is user info in cookie and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(USER_ID, userId)
@@ -351,6 +354,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setPath(config.cookiePath)
                 .setMaxAge(expiresIn)
                 .setHttpOnly(false)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
         if(userType != null) {
             exchange.setResponseCookie(new CookieImpl(USER_TYPE, userType)
@@ -358,6 +362,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)
                     .setHttpOnly(false)
+                    .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                     .setSecure(config.cookieSecure));
         }
         if(roles != null) {
@@ -366,6 +371,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)
                     .setHttpOnly(false)
+                    .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                     .setSecure(config.cookieSecure));
         }
         // this is another csrf token in cookie and it is accessible for Javascript.
@@ -374,6 +380,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setPath(config.cookiePath)
                 .setMaxAge(expiresIn)
                 .setHttpOnly(false)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
         return scopes;
     }
