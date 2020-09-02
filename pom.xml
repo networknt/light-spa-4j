@@ -168,6 +168,11 @@
                 <artifactId>security</artifactId>
                 <version>${version.light-4j}</version>
             </dependency>
+            <dependency>
+                <groupId>net.lightapi</groupId>
+                <artifactId>common-util</artifactId>
+                <version>${version.light-4j}</version>
+            </dependency>
             <!-- External dependencies -->
 
             <dependency>
@@ -219,16 +224,6 @@
                 <groupId>org.redisson</groupId>
                 <artifactId>redisson</artifactId>
                 <version>${version.redisson}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.zaxxer</groupId>
-                <artifactId>HikariCP</artifactId>
-                <version>${version.hikaricp}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.hazelcast</groupId>
-                <artifactId>hazelcast</artifactId>
-                <version>${version.hazelcast}</version>
             </dependency>
             <dependency>
                 <groupId>com.github.ben-manes.caffeine</groupId>

@@ -20,6 +20,7 @@ package com.networknt.auth;
  * Created by steve on 29/09/16.
  */
 public class StatelessAuthConfig {
+    public static final String CONFIG_NAME = "statelessAuth";
     boolean enabled;
     String redirectUri;
     String denyUri;
@@ -30,6 +31,19 @@ public class StatelessAuthConfig {
     String cookiePath;
     String cookieTimeoutUri;
     boolean cookieSecure;
+    String bootstrapToken;
+    String googlePath;
+    String googleClientId;
+    String googleClientSecret;
+    String googleRedirectUri;
+
+    String facebookPath;
+    String facebookClientId;
+    String facebookClientSecret;
+
+    String githubPath;
+    String githubClientId;
+    String githubClientSecret;
 
     public StatelessAuthConfig() {
     }
@@ -98,5 +112,93 @@ public class StatelessAuthConfig {
 
     public void setLogoutPath(String logoutPath) {
         this.logoutPath = logoutPath;
+    }
+
+    public String getGooglePath() {
+        return googlePath;
+    }
+
+    public void setGooglePath(String googlePath) {
+        this.googlePath = googlePath;
+    }
+
+    public String getGoogleClientId() {
+        return googleClientId;
+    }
+
+    public void setGoogleClientId(String googleClientId) {
+        this.googleClientId = googleClientId;
+    }
+
+    public String getGoogleClientSecret() {
+        return googleClientSecret;
+    }
+
+    public void setGoogleClientSecret(String googleClientSecret) {
+        this.googleClientSecret = googleClientSecret;
+    }
+
+    public String getGoogleRedirectUri() {
+        return googleRedirectUri;
+    }
+
+    public void setGoogleRedirectUri(String googleRedirectUri) {
+        this.googleRedirectUri = googleRedirectUri;
+    }
+
+    public String getBootstrapToken() {
+        return bootstrapToken;
+    }
+
+    public void setBootstrapToken(String bootstrapToken) {
+        this.bootstrapToken = bootstrapToken;
+    }
+
+    public String getFacebookPath() {
+        return facebookPath;
+    }
+
+    public void setFacebookPath(String facebookPath) {
+        this.facebookPath = facebookPath;
+    }
+
+    public String getFacebookClientId() {
+        return facebookClientId;
+    }
+
+    public void setFacebookClientId(String facebookClientId) {
+        this.facebookClientId = facebookClientId;
+    }
+
+    public String getFacebookClientSecret() {
+        return facebookClientSecret;
+    }
+
+    public void setFacebookClientSecret(String facebookClientSecret) {
+        this.facebookClientSecret = facebookClientSecret;
+    }
+
+    public String getGithubPath() {
+        return githubPath;
+    }
+
+    public void setGithubPath(String githubPath) {
+        this.githubPath = githubPath;
+    }
+
+    public String getGithubClientId() {
+        return githubClientId;
+    }
+
+    public void setGithubClientId(String githubClientId) {
+        this.githubClientId = githubClientId;
+    }
+
+    public String getGithubClientSecret() {
+        return githubClientSecret;
+    }
+
+    public void setGithubClientSecret(String githubClientSecret) {
+        this.githubClientSecret = githubClientSecret;
     }
 }

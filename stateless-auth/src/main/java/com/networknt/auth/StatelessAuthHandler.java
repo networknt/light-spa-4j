@@ -21,12 +21,10 @@ import com.networknt.config.Config;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
-import com.networknt.httpstring.AttachmentConstants;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
 import com.networknt.status.Status;
-import com.networknt.exception.ExpiredTokenException;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.Util;
@@ -84,7 +82,6 @@ import java.util.*;
  */
 public class StatelessAuthHandler implements MiddlewareHandler {
     private static final Logger logger = LoggerFactory.getLogger(StatelessAuthHandler.class);
-    private static final String CONFIG_NAME = "statelessAuth";
     private static final String CODE = "code";
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
     private static final String JWT_NOT_FOUND_IN_COOKIES = "ERR10040";
@@ -101,11 +98,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String REFRESH_TOKEN = "refreshToken";
     private static final String USER_TYPE = "userType";
     private static final String USER_ID = "userId";
-    private static final String SCOPES = "scopes";
+    protected static final String SCOPES = "scopes";
     private static final String SCOPE = "scope";
 
     public static StatelessAuthConfig config =
-            (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(CONFIG_NAME, StatelessAuthConfig.class);
+            (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
     static Map<String, Object> securityConfig;
     static JwtVerifier jwtVerifier;
     static {
@@ -309,7 +306,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
     }
 
-    private List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
+    protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
         String remember = response.getRemember();
