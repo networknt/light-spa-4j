@@ -22,3 +22,29 @@ cookiePath: /
 cookieTimeoutUri: /login
 # Cookie secured
 cookieSecure: true
+
+# Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. And it is created with a special tool only available to customers.
+bootstrapToken: eyJraWQiOiIxMDAiLCJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ1cm46Y29tOm5ldHdvcmtudDpvYXV0aDI6djEiLCJhdWQiOiJ1cm46Y29tLm5ldHdvcmtudCIsImV4cCI6MTkxMjk0MzAzMiwianRpIjoia3NPRHl0MlFVU25CY0NublpOMmZSZyIsImlhdCI6MTU5NzU4MzAzMiwibmJmIjoxNTk3NTgyOTEyLCJ2ZXJzaW9uIjoiMS4wIiwiY2xpZW50X2lkIjoiZjdkNDIzNDgtYzY0Ny00ZWZiLWE1MmQtNGM1Nzg3NDIxZTczIiwic2NvcGUiOlsicG9ydGFsLnIiLCJwb3J0YWwudyJdfQ.uCfoIZMx5xhlHvLAnmgkyuSnTGm0pTEosZOgFdGf946XeAxzULQk6mwHz0wu0oNL_L0hT1uOsgANfNpVmS44nbedkqELgHAnJpHf4IP7EStHk3o99MPZSVLufKvKmbP6-G0Th-1a8wK5XkX1_9WIhHAmxr-D23VQpvJq_XOKH24Ik06qSVUj-B3YAHrqlNIk4b-WqUYhUkluOYvI4mvCwB-xi5-Nioqa6JqpXO9fv7bb9xQzKX_3MsuEYT-LO8vquNtKPJLbz42vP1A5calbyBNZ4pnKgJyjH9_TFMywNZ-C7y2ZlhNR5_F-MKKysVkOC25TJmV49om_kb2lnoEDKg
+
+# Google Auth Path
+googlePath: /google
+# Google Client Id
+googleClientId: google_client_id
+# Google Client Secret
+googleClientSecret: google_client_secret
+# Google Redirect URI
+googleRedirectUri: https://localhost:3000
+
+# Facebook Auth Path
+facebookPath: /facebook
+# Facebook Client Id
+facebookClientId: facebook_client_id
+# Facebook Client Secret
+facebookClientSecret: facebook_client_secret
+
+# Github Auth Path
+githubPath: /github
+# Github Client Id
+githubClientId: github_client_id
+# Github Client Secret
+githubClientSecret: github_client_secret
