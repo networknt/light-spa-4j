@@ -27,6 +27,8 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
     private static final Logger logger = LoggerFactory.getLogger(GoogleAuthHandler.class);
     private static final String CODE = "code";
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
+    private static final String EMAIL_REGISTERED = "ERR11350";
+
     public static StatelessAuthConfig config =
             (StatelessAuthConfig) Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
 
@@ -65,7 +67,15 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
             String familyName = (String) payload.get("family_name");
             String givenName = (String) payload.get("given_name");
             Result<String> resultUser = HybridQueryClient.getUserByEmail(email, config.getBootstrapToken());
-            if(resultUser.isFailure()) {
+            if(resultUser.isSuccess()) {
+                Map<String, Object> map = JsonMapper.string2Map(resultUser.getResult());
+                String id = (String)map.get("userId");
+                if(logger.isTraceEnabled()) logger.trace("userId from query service: " + id + " userId from google: " + userId);
+                if(!userId.equals(id)) {
+                    setExchangeStatus(exchange, EMAIL_REGISTERED, email, id);
+                    return;
+                }
+            } else {
                 // create a social user
                 Map<String, Object> map = new HashMap<>();
                 map.put("host", "lightapi.net");
@@ -77,7 +87,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
                 Result<String> result = HybridCommandClient.createSocialUser(map, config.getBootstrapToken());
             }
             String csrf = Util.getUUID();
-            TokenRequest request = new ClientAuthenticatedUserRequest("social", userId, "user");
+            TokenRequest request = new ClientAuthenticatedUserRequest("social", email, "user");
             request.setCsrf(csrf);
             Result<TokenResponse> result = OauthHelper.getTokenResult(request);
             if (result.isFailure()) {
