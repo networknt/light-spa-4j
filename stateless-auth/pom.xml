@@ -63,8 +63,8 @@
             <artifactId>security</artifactId>
         </dependency>
         <dependency>
-            <groupId>net.lightapi</groupId>
-            <artifactId>common-util</artifactId>
+            <groupId>com.networknt</groupId>
+            <artifactId>server</artifactId>
         </dependency>
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>

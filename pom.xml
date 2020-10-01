@@ -169,8 +169,8 @@
                 <version>${version.light-4j}</version>
             </dependency>
             <dependency>
-                <groupId>net.lightapi</groupId>
-                <artifactId>common-util</artifactId>
+                <groupId>com.networknt</groupId>
+                <artifactId>server</artifactId>
                 <version>${version.light-4j}</version>
             </dependency>
             <!-- External dependencies -->
@@ -251,12 +251,6 @@
                 <groupId>org.junit.jupiter</groupId>
                 <artifactId>junit-jupiter-engine</artifactId>
                 <version>${version.junit}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>com.networknt</groupId>
-                <artifactId>server</artifactId>
-                <version>${version.light-4j}</version>
                 <scope>test</scope>
             </dependency>
             <dependency>
