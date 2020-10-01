@@ -1,8 +1,6 @@
 package com.networknt.auth;
 
 import com.google.api.client.googleapis.auth.oauth2.*;
-import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
-import com.google.api.client.http.HttpTransport;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.networknt.client.oauth.*;
@@ -11,16 +9,12 @@ import com.networknt.config.JsonMapper;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.monad.Result;
 import com.networknt.status.Status;
-import com.networknt.utility.StringUtils;
 import com.networknt.utility.Util;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.StatusCodes;
-import net.lightapi.portal.HybridCommandClient;
-import net.lightapi.portal.HybridQueryClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.util.*;
 
 public class GoogleAuthHandler extends StatelessAuthHandler implements MiddlewareHandler {
@@ -66,7 +60,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
             String userId = name.replaceAll("\\s+","") + "@go";
             String familyName = (String) payload.get("family_name");
             String givenName = (String) payload.get("given_name");
-            Result<String> resultUser = HybridQueryClient.getUserByEmail(email, config.getBootstrapToken());
+            Result<String> resultUser = PortalClient.getUserByEmail(email, config.getBootstrapToken());
             if(resultUser.isSuccess()) {
                 Map<String, Object> map = JsonMapper.string2Map(resultUser.getResult());
                 String id = (String)map.get("userId");
@@ -84,7 +78,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
                 map.put("language", "en");
                 map.put("firstName", givenName);
                 map.put("lastName", familyName);
-                Result<String> result = HybridCommandClient.createSocialUser(map, config.getBootstrapToken());
+                Result<String> result = PortalClient.createSocialUser(map, config.getBootstrapToken());
             }
             String csrf = Util.getUUID();
             TokenRequest request = new ClientAuthenticatedUserRequest("social", email, "user");

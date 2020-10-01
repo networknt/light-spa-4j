@@ -17,8 +17,6 @@ import com.restfb.Version;
 import com.restfb.types.User;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.StatusCodes;
-import net.lightapi.portal.HybridCommandClient;
-import net.lightapi.portal.HybridQueryClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +54,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                 String lastName = me.getLastName();
                 String name = me.getName();
                 String userId = name.replaceAll("\\s+","") + "@fb";
-                Result<String> resultUser = HybridQueryClient.getUserByEmail(email, config.getBootstrapToken());
+                Result<String> resultUser = PortalClient.getUserByEmail(email, config.getBootstrapToken());
                 if(resultUser.isSuccess()) {
                     Map<String, Object> map = JsonMapper.string2Map(resultUser.getResult());
                     String id = (String)map.get("userId");
@@ -73,7 +71,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                     map.put("language", "en");
                     map.put("firstName", firstName);
                     map.put("lastName", lastName);
-                    Result<String> result = HybridCommandClient.createSocialUser(map, config.getBootstrapToken());
+                    Result<String> result = PortalClient.createSocialUser(map, config.getBootstrapToken());
                 }
                 String csrf = Util.getUUID();
                 TokenRequest request = new ClientAuthenticatedUserRequest("social", email, "user");
