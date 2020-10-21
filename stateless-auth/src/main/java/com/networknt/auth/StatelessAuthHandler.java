@@ -213,7 +213,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
             // for example, in the light-portal command side, createUser doesn't need a token. let it go
             // to the service and an error will be back if the service does require a token.
-            Handler.next(exchange, next);
+            // don't call the next handler is the exchange is completed in renewToken when error occurs.
+            if(!exchange.isComplete()) Handler.next(exchange, next);
         }
     }
 
@@ -231,6 +232,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     TokenResponse response = result.getResult();
                     setCookies(exchange, response, csrf);
                     jwt = response.getAccessToken();
+                } else {
+                    if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token", result.getError());
+                    // remove the cookies to log out the user
+                    removeCookies(exchange);
+                    exchange.endExchange();
                 }
             }
         }
