@@ -172,41 +172,39 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         } else {
             // first get the jwt token from httpOnly cookie sent by first step authentication
             String jwt = null;
-            Map<String, Cookie> cookies = exchange.getRequestCookies();
-            if(cookies != null) {
-                Cookie cookie = cookies.get(ACCESS_TOKEN);
-                if(cookie != null) {
-                    jwt = cookie.getValue();
-                    // verify the jwt without caring about expiration and compare csrf token
-                    JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
-                    String jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
-                    // get csrf token from the header. Return error is it doesn't exist.
-                    String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-                    if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                        setExchangeStatus(exchange, CSRF_HEADER_MISSING);
-                        return;
-                    }
-                    // verify csrf from jwt token in httpOnly cookie
-                    if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
-                        setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
-                        return;
-                    }
-                    if(logger.isDebugEnabled()) logger.debug("headerCsrf = " + headerCsrf + " jwtCsrf = " + jwtCsrf);
-                    if(!headerCsrf.equals(jwtCsrf)) {
-                        setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
-                        return;
-                    }
-                    // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
-                    // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
-                    // per minute will make the session continue until the browser tab is closed.
-                    if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
-                        jwt = renewToken(exchange, cookies.get(REFRESH_TOKEN));
-                    }
-                } else {
-                    // renew the token and set the cookies
-                    jwt = renewToken(exchange, cookies.get(REFRESH_TOKEN));
+            Cookie cookie = exchange.getRequestCookie(ACCESS_TOKEN);
+            if(cookie != null) {
+                jwt = cookie.getValue();
+                // verify the jwt without caring about expiration and compare csrf token
+                JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
+                String jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
+                // get csrf token from the header. Return error is it doesn't exist.
+                String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
+                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
+                    setExchangeStatus(exchange, CSRF_HEADER_MISSING);
+                    return;
                 }
+                // verify csrf from jwt token in httpOnly cookie
+                if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
+                    setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
+                    return;
+                }
+                if(logger.isDebugEnabled()) logger.debug("headerCsrf = " + headerCsrf + " jwtCsrf = " + jwtCsrf);
+                if(!headerCsrf.equals(jwtCsrf)) {
+                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                    return;
+                }
+                // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
+                // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
+                // per minute will make the session continue until the browser tab is closed.
+                if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
+                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
+                }
+            } else {
+                // renew the token and set the cookies
+                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
             }
+
             if(logger.isDebugEnabled()) logger.debug("jwt = " + jwt);
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
@@ -245,70 +243,67 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     private void removeCookies(final HttpServerExchange exchange) {
         // first get the cookie from the request.
-        Map<String, Cookie> cookies = exchange.getRequestCookies();
-        if(cookies != null) {
-            Cookie accessTokenCookie = cookies.get(ACCESS_TOKEN);
-            if(accessTokenCookie != null) {
-                accessTokenCookie.setMaxAge(0)
-                        .setValue("")
-                        .setDomain(config.cookieDomain)
-                        .setPath(config.cookiePath)
-                        .setHttpOnly(true)
-                        .setSecure(config.cookieSecure);
-                exchange.setResponseCookie(accessTokenCookie);
-            }
-            Cookie refreshTokenCookie = cookies.get(REFRESH_TOKEN);
-            if(refreshTokenCookie != null) {
-                refreshTokenCookie.setMaxAge(0)
-                        .setValue("")
-                        .setDomain(config.cookieDomain)
-                        .setPath(config.cookiePath)
-                        .setHttpOnly(true)
-                        .setSecure(config.cookieSecure);
-                exchange.setResponseCookie(refreshTokenCookie);
-            }
-            Cookie csrfCookie = cookies.get(Constants.CSRF_STRING);
-            if(csrfCookie != null) {
-                csrfCookie.setMaxAge(0)
-                        .setValue("")
-                        .setDomain(config.cookieDomain)
-                        .setPath(config.cookiePath)
-                        .setHttpOnly(true)
-                        .setSecure(config.cookieSecure);
-                exchange.setResponseCookie(csrfCookie);
-            }
-            // remove userId
-            Cookie userIdCookie = cookies.get(USER_ID);
-            if(userIdCookie != null) {
-                userIdCookie.setMaxAge(0)
-                        .setValue("")
-                        .setDomain(config.cookieDomain)
-                        .setPath(config.cookiePath)
-                        .setHttpOnly(false)
-                        .setSecure(config.cookieSecure);
+        Cookie accessTokenCookie = exchange.getRequestCookie(ACCESS_TOKEN);
+        if(accessTokenCookie != null) {
+            accessTokenCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(true)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(accessTokenCookie);
+        }
+        Cookie refreshTokenCookie = exchange.getRequestCookie(REFRESH_TOKEN);
+        if(refreshTokenCookie != null) {
+            refreshTokenCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(true)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(refreshTokenCookie);
+        }
+        Cookie csrfCookie = exchange.getRequestCookie(Constants.CSRF_STRING);
+        if(csrfCookie != null) {
+            csrfCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(true)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(csrfCookie);
+        }
+        // remove userId
+        Cookie userIdCookie = exchange.getRequestCookie(USER_ID);
+        if(userIdCookie != null) {
+            userIdCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure);
 
-                exchange.setResponseCookie(userIdCookie);
-            }
-            Cookie userTypeCookie = cookies.get(USER_TYPE);
-            if(userTypeCookie != null) {
-                userTypeCookie.setMaxAge(0)
-                        .setValue("")
-                        .setDomain(config.cookieDomain)
-                        .setPath(config.cookiePath)
-                        .setHttpOnly(false)
-                        .setSecure(config.cookieSecure);
-                exchange.setResponseCookie(userTypeCookie);
-            }
-            Cookie rolesCookie = cookies.get(Constants.ROLES_STRING);
-            if(rolesCookie != null) {
-                rolesCookie.setMaxAge(0)
-                        .setValue("")
-                        .setDomain(config.cookieDomain)
-                        .setPath(config.cookiePath)
-                        .setHttpOnly(false)
-                        .setSecure(config.cookieSecure);
-                exchange.setResponseCookie(rolesCookie);
-            }
+            exchange.setResponseCookie(userIdCookie);
+        }
+        Cookie userTypeCookie = exchange.getRequestCookie(USER_TYPE);
+        if(userTypeCookie != null) {
+            userTypeCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(userTypeCookie);
+        }
+        Cookie rolesCookie = exchange.getRequestCookie(Constants.ROLES_STRING);
+        if(rolesCookie != null) {
+            rolesCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(rolesCookie);
         }
     }
 
