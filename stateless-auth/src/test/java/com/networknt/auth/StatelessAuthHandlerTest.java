@@ -95,7 +95,7 @@ public class StatelessAuthHandlerTest {
             statelessAuthHandler.setNext(handler);
             handler = statelessAuthHandler;
             authServer = Undertow.builder()
-                    .addHttpsListener(8080, "localhost", sslContext)
+                    .addHttpsListener(7080, "localhost", sslContext)
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(handler)
                     .build();
@@ -105,7 +105,7 @@ public class StatelessAuthHandlerTest {
         if(tokenServer == null) {
             logger.info("starting oauth token server");
             tokenServer = Undertow.builder()
-                    .addHttpsListener(6882, "localhost", sslContext)
+                    .addHttpsListener(5882, "localhost", sslContext)
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(Handlers.header(Handlers.path()
                                     .addPrefixPath("/oauth2/token", (exchange) -> {
@@ -165,7 +165,7 @@ public class StatelessAuthHandlerTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final ClientConnection connection;
         try {
-            connection = client.connect(new URI("https://localhost:8080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true)).get();
+            connection = client.connect(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true)).get();
         } catch (Exception e) {
             throw new ClientException(e);
         }
@@ -190,7 +190,7 @@ public class StatelessAuthHandlerTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final ClientConnection connection;
         try {
-            connection = client.connect(new URI("https://localhost:8080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true)).get();
+            connection = client.connect(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true)).get();
         } catch (Exception e) {
             throw new ClientException(e);
         }
