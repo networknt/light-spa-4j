@@ -1,5 +1,16 @@
 # Change Log
 
+## [2.1.0](https://github.com/networknt/light-spa-4j/tree/2.1.0) (2022-02-27)
+
+
+**Merged pull requests:**
+
+
+- fixes \#79 fix the config name to use the right key for the registry [\#80](https://github.com/networknt/light-spa-4j/pull/80) ([stevehu](https://github.com/stevehu))
+- fixes \#77 add default values for bootstrap token and client secrets [\#78](https://github.com/networknt/light-spa-4j/pull/78) ([stevehu](https://github.com/stevehu))
+- fixes \#75 update the statelessAuth.yml to externalize properties [\#76](https://github.com/networknt/light-spa-4j/pull/76) ([stevehu](https://github.com/stevehu))
+
+
 ## [2.0.32](https://github.com/networknt/light-spa-4j/tree/2.0.32) (2021-10-19)
 
 
