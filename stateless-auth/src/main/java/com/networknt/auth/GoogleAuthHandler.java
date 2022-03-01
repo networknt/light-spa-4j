@@ -2,7 +2,7 @@ package com.networknt.auth;
 
 import com.google.api.client.googleapis.auth.oauth2.*;
 import com.google.api.client.http.javanet.NetHttpTransport;
-import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.json.gson.GsonFactory;
 import com.networknt.client.oauth.*;
 import com.networknt.config.Config;
 import com.networknt.config.JsonMapper;
@@ -45,7 +45,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
             GoogleTokenResponse tokenResponse =
                     new GoogleAuthorizationCodeTokenRequest(
                             new NetHttpTransport(),
-                            JacksonFactory.getDefaultInstance(),
+                            GsonFactory.getDefaultInstance(),
                             "https://oauth2.googleapis.com/token",
                             config.getGoogleClientId(),
                             config.getGoogleClientSecret(),
