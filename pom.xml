@@ -102,7 +102,8 @@
         <version.undertow>2.2.14.Final</version.undertow>
         <version.snakeyaml>1.26</version.snakeyaml>
         <version.caffeine>2.6.2</version.caffeine>
-        <version.google>1.33.2</version.google>
+        <version.google-api>1.33.2</version.google-api>
+        <version.google-client>1.41.4</version.google-client>
         <version.facebook>3.9.0</version.facebook>
         <versions.maven-version>2.4</versions.maven-version>
         <version.javadoc-packagelist-plugin>1.0.0</version.javadoc-packagelist-plugin>
@@ -233,7 +234,12 @@
             <dependency>
                 <groupId>com.google.api-client</groupId>
                 <artifactId>google-api-client</artifactId>
-                <version>${version.google}</version>
+                <version>${version.google-api}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.http-client</groupId>
+                <artifactId>google-http-client-jackson2</artifactId>
+                <version>${version.google-client}</version>
             </dependency>
             <dependency>
                 <groupId>com.restfb</groupId>

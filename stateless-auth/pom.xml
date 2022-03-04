@@ -91,6 +91,11 @@
             <artifactId>google-api-client</artifactId>
         </dependency>
         <dependency>
+            <groupId>com.google.http-client</groupId>
+            <artifactId>google-http-client-jackson2</artifactId>
+        </dependency>
+
+        <dependency>
             <groupId>com.restfb</groupId>
             <artifactId>restfb</artifactId>
         </dependency>
