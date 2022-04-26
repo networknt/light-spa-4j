@@ -1,5 +1,13 @@
 # Change Log
 
+## [2.1.1](https://github.com/networknt/light-spa-4j/tree/2.1.1) (2022-04-26)
+
+
+**Merged pull requests:**
+
+
+- fixes \#83 update the dependency and switch back to jackson factory fo… [\#84](https://github.com/networknt/light-spa-4j/pull/84) ([stevehu](https://github.com/stevehu))
+- fixes \#81 upgrade google client api to 1.33.2 from 1.30.10 and update… [\#82](https://github.com/networknt/light-spa-4j/pull/82) ([stevehu](https://github.com/stevehu))
 ## [2.1.0](https://github.com/networknt/light-spa-4j/tree/2.1.0) (2022-02-27)
 
 
