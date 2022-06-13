@@ -18,12 +18,14 @@ package com.networknt.auth;
 
 import com.networknt.client.oauth.*;
 import com.networknt.config.Config;
+import com.networknt.config.ConfigException;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
+import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
@@ -103,16 +105,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     public static StatelessAuthConfig config =
             (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
-    static Map<String, Object> securityConfig;
+    static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
     static {
         // The SPA server can be based on OpenAPI, GraphQL or Hybrid, check if openapi-security.yml exists first
-        securityConfig = Config.getInstance().getJsonMapConfig(OPENAPI_SECURITY_CONFIG);
-        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(SWAGGER_SECURITY_CONFIG);
-        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(GRAPHQL_SECURITY_CONFIG);
-        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(HYBRID_SECURITY_CONFIG);
-        // fallback to generic security.yml
-        if(securityConfig == null) securityConfig = Config.getInstance().getJsonMapConfig(JwtVerifier.SECURITY_CONFIG);
+        securityConfig = SecurityConfig.load(OPENAPI_SECURITY_CONFIG);
+        if(securityConfig.getMappedConfig() == null) securityConfig = SecurityConfig.load(GRAPHQL_SECURITY_CONFIG);
+        if(securityConfig.getMappedConfig() == null) securityConfig = SecurityConfig.load(HYBRID_SECURITY_CONFIG);
+        if(securityConfig.getMappedConfig() == null) securityConfig = SecurityConfig.load(JwtVerifier.SECURITY_CONFIG);
         jwtVerifier = new JwtVerifier(securityConfig);
     }
 
