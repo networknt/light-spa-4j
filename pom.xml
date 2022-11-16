@@ -100,7 +100,7 @@
         <version.logback>1.2.11</version.logback>
         <version.junit>5.0.1</version.junit>
         <version.undertow>2.3.0.Final</version.undertow>
-        <version.snakeyaml>1.31</version.snakeyaml>
+        <version.snakeyaml>1.33</version.snakeyaml>
         <version.caffeine>2.6.2</version.caffeine>
         <version.google-api>1.33.2</version.google-api>
         <version.google-client>1.41.4</version.google-client>
