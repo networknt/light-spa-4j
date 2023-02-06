@@ -1,5 +1,12 @@
 # Change Log
 
+## [2.1.6](https://github.com/networknt/light-spa-4j/tree/2.1.6) (2023-02-06)
+
+
+**Merged pull requests:**
+
+
+- fixes \#92 upgrade google oauth client to 1.34.1 [\#93](https://github.com/networknt/light-spa-4j/pull/93) ([stevehu](https://github.com/stevehu))
 ## [2.1.5](https://github.com/networknt/light-spa-4j/tree/2.1.5) (2023-01-04)
 
 
