@@ -7,6 +7,8 @@
 
 
 - fixes \#94 upgrade google api client version [\#95](https://github.com/networknt/light-spa-4j/pull/95) ([stevehu](https://github.com/stevehu))
+
+
 ## [2.1.6](https://github.com/networknt/light-spa-4j/tree/2.1.6) (2023-02-06)
 
 
