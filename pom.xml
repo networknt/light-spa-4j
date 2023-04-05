@@ -101,7 +101,7 @@
         <version.junit>5.0.1</version.junit>
         <version.undertow>2.3.5.Final</version.undertow>
         <version.snakeyaml>2.0</version.snakeyaml>
-        <version.caffeine>2.6.2</version.caffeine>
+        <version.caffeine>3.1.5</version.caffeine>
         <version.google-api>2.2.0</version.google-api>
         <version.google-client>1.42.3</version.google-client>
         <version.facebook>3.9.0</version.facebook>
