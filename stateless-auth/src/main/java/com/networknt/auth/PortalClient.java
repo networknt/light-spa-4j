@@ -8,6 +8,7 @@ import com.networknt.monad.Failure;
 import com.networknt.monad.Result;
 import com.networknt.monad.Success;
 import com.networknt.server.Server;
+import com.networknt.server.ServerConfig;
 import com.networknt.service.SingletonServiceFactory;
 import com.networknt.status.Status;
 import io.undertow.UndertowOptions;
@@ -33,7 +34,7 @@ public class PortalClient {
     static final String commandServiceId = "com.networknt.portal.hybrid.command-1.0.0";
     static final String queryServiceId = "com.networknt.portal.hybrid.query-1.0.0";
 
-    static String tag = Server.getServerConfig().getEnvironment();
+    static String tag = ServerConfig.getInstance().getEnvironment();
     // Get the singleton Cluster instance
     static Cluster cluster = SingletonServiceFactory.getBean(Cluster.class);
     // Get the singleton Http2Client instance
