@@ -1,5 +1,12 @@
 # Change Log
 
+## [2.1.29](https://github.com/networknt/light-spa-4j/tree/2.1.29) (2023-11-19)
+
+
+**Merged pull requests:**
+
+
+- fixes \#97 refactor ServerConfig and ModuleRegistry [\#98](https://github.com/networknt/light-spa-4j/pull/98) ([stevehu](https://github.com/stevehu))
 ## [2.1.28](https://github.com/networknt/light-spa-4j/tree/2.1.28) (2023-10-24)
 
 
