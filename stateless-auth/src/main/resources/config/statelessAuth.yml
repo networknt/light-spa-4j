@@ -24,14 +24,14 @@ cookieTimeoutUri: ${statelessAuth.cookieTimeoutUri:/}
 cookieSecure: ${statelessAuth.cookieSecure:true}
 
 # Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. And it is created with a special tool only available to customers.
-bootstrapToken: ${STATELESS_AUTH_BOOTSTRAP_TOKEN:token}
+bootstrapToken: ${statelessAuth.bootstrapToken:token}
 
 # Google Auth Path
 googlePath: ${statelessAuth.googlePath:/google}
 # Google Client Id
 googleClientId: ${statelessAuth.googleClientId:google_client_id}
 # Google Client Secret that is retrieved from the environment variable
-googleClientSecret: ${GOOGLE_CLIENT_SECRET:secret}
+googleClientSecret: ${statelessAuth.googleClientSecret:secret}
 # Google Redirect URI
 googleRedirectUri: ${statelessAuth.googleRedirectUri:https://localhost:3000}
 
@@ -40,11 +40,11 @@ facebookPath: ${statelessAuth.facebookPath:/facebook}
 # Facebook Client Id
 facebookClientId: ${statelessAuth.facebookClientId:facebook_client_id}
 # Facebook Client Secret that is retrieved from the environment variable
-facebookClientSecret: ${FACEBOOK_CLIENT_SECRET:secret}
+facebookClientSecret: ${statelessAuth.facebookClientSecret:secret}
 
 # GitHub Auth Path
 githubPath: ${statelessAuth.githubPath:/github}
 # GitHub Client Id
 githubClientId: ${statelessAuth.githubClientId:github_client_id}
 # GitHub Client Secret that is retrieved from the environment variable
-githubClientSecret: ${GITHUB_CLIENT_SECRET:secret}
+githubClientSecret: ${statelessAuth.githubClientSecret:secret}
