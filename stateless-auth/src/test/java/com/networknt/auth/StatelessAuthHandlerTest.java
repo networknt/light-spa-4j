@@ -19,6 +19,7 @@ package com.networknt.auth;
 import com.networknt.client.Http2Client;
 import com.networknt.config.Config;
 import com.networknt.exception.ClientException;
+import com.networknt.security.KeyUtil;
 import io.undertow.Handlers;
 import io.undertow.Undertow;
 import io.undertow.UndertowOptions;
@@ -28,6 +29,7 @@ import io.undertow.client.ClientResponse;
 import io.undertow.server.HttpHandler;
 import io.undertow.server.RoutingHandler;
 import io.undertow.util.Headers;
+import io.undertow.util.HttpString;
 import io.undertow.util.Methods;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jws.AlgorithmIdentifiers;
@@ -108,6 +110,10 @@ public class StatelessAuthHandlerTest {
                     .addHttpsListener(5882, "localhost", sslContext)
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(Handlers.header(Handlers.path()
+                                    .addPrefixPath("/oauth2/N2CMw0HGQXeLvC1wBfln2A/keys", (exchange) -> {
+                                        exchange.getResponseHeaders().add(new HttpString("Content-Type"), "application/json");
+                                        exchange.getResponseSender().send("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}");
+                                    })
                                     .addPrefixPath("/oauth2/token", (exchange) -> {
                                         // create a token that expired in 5 seconds.
                                         Map<String, Object> map = new HashMap<>();
@@ -239,11 +245,12 @@ public class StatelessAuthHandlerTest {
         return claims;
     }
 
-    private static String getJwt(JwtClaims claims) throws JoseException {
+    private static String getJwt(JwtClaims claims) throws Exception {
+        String long_kid = "Tj_l_tIBTginOtQbL0Pv5w";
+        String long_key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDRhFtYBvUUYOk9RRysikkLoHCWzCUoxL7PbAwCht2jQE3E1ruEb+AgdU+Re7Xgl+jUmFSFLjARLcN1jdrqiWo9xE3VMIJRUd37VMt3UEFL7Kr210nocJ7CF7l9eidpFErC62+gfuL95Hibd9DUahXNUADcieClOvim2czcR/d+P7nBliaK3OtFTJC18BFOXeoZpc/+DykcUA/TOs1W86dX6Nw0wqbxhk1yByzVK4tIW1QNel/s2vb/E6GI0z5uIRLoPNrWwwuuXFQsW5y25072XKQHvIWHcsczG0hnIhQe7LRFuO44YLk+YOjAu21mk8j+PjKckcBoBavwN3PvrhZ1AgMBAAECggEBAMuDYGLqJydLV2PPfSHQFVH430RrOfEW4y2CC0xtCl8n+CKqXm0vaqq8qLRtUWa+yEexS/AtxDz7ke/fAfVt00f6JYxe2Ub6WcBnRlg4GaURV6P7zWu98UghWWkbvaphLpmVrdFdT0pFoi2JvcyG23SaMKwINbDpzlvsFgUm1q3GoCIZXRc8iAKT+Iil1QmGdacGni/D2WzPTLSf1/acZU2TsPBWLS/jsjPe4ac4IDpxssDC+w6QArZ8U64DKJ531C4tK9o+RArQzBrEaZc1mAlw7xAPr36tXvOTUycux6k07ERSIIze2okVmmewL6tX1cb7tY1F8T+ebKGD3xGEAYUCgYEA9Lpy4593uTBww7AupcZq2YL8qHUfnvxIWiFbeIznUezyYyRbjyLDYj+g7QfQJHk579UckDZZDcT3H+wdh1LxQ7HKDlYQn2zt8Kdufs5cvSObeGkSqSY26g4QDRcRcRO3xFs8bQ/CnPNT7hsWSY+8wnuRvjUTstMA1vx1+/HHZfMCgYEA2yq8yFogdd2/wUcFlqjPgbJ98X9ZNbZ06uUCur4egseVlSVE+R2pigVVwFCDQpseGu2GVgW5q8kgDGsaJuEVWIhGZvS9IHONBz/WB0PmOZjXlXOhmT6iT6m/9bAQk8MtOee77lUVvgf7FO8XDKtuPh6VGJpr+YJHxHoEX/dbo/cCgYAjwy9Q1hffxxVjc1aNwR4SJRMY5uy1BfbovOEqD6UqEq8lD8YVd6YHsHaqzK589f4ibwkaheajnXnjf1SdVuCM3OlDCQ6qzXdD6KO8AhoJRa/Ne8VPVJdHwsBTuWBCHviGyDJfWaM93k0QiYLLQyb5YKdenVEAm9cOk5wGMkHKQwKBgH050CASDxYJm/UNZY4N6nLKz9da0lg0Zl2IeKTG2JwU+cz8PIqyfhqUrchyuG0oQG1WZjlkkBAtnRg7YffxB8dMJh3RnPabz2ri+KGyFCu4vwVvylfLR+aIsVvqO66SCJdbZy/ogcHQwY/WhK8CjL0FsF8cbLFl1SfYKAPFTCFFAoGANmOKonyafvWqsSkcl6vUTYYq53IN+qt0IJTDB2cEIEqLXtNth48HvdQkxDF3y4cNLZevhyuIy0Z3yWGbZM2yWbDNn8Q2W5RTyajofQu1mIv2EBzLeOoaSBPLX4G6r4cODSwWbjOdaNxcXd0+uYeAWDuQUSnHpHFJ2r1cpL/9Nbs=";
         String jwt;
 
-        RSAPrivateKey privateKey = (RSAPrivateKey) getPrivateKey(
-                "/config/primary.jks", "password", "selfsigned");
+        PrivateKey privateKey = KeyUtil.deserializePrivateKey(long_key, KeyUtil.RSA);
 
         // A JWT is a JWS and/or a JWE with JSON claims as the payload.
         // In this example it is a JWS nested inside a JWE
@@ -255,7 +262,7 @@ public class StatelessAuthHandlerTest {
 
         // The JWT is signed using the sender's private key
         jws.setKey(privateKey);
-        jws.setKeyIdHeaderValue("100");
+        jws.setKeyIdHeaderValue(long_kid);
 
         // Set the signature algorithm on the JWT/JWS that will integrity protect the claims
         jws.setAlgorithmHeaderValue(AlgorithmIdentifiers.RSA_USING_SHA256);
@@ -265,27 +272,6 @@ public class StatelessAuthHandlerTest {
         // base64url-encoded parts in the form Header.Payload.Signature
         jwt = jws.getCompactSerialization();
         return jwt;
-    }
-
-    private static PrivateKey getPrivateKey(String filename, String password, String key) {
-        PrivateKey privateKey = null;
-
-        try {
-            KeyStore keystore = KeyStore.getInstance("JKS");
-            keystore.load(Http2Client.class.getResourceAsStream(filename),
-                    password.toCharArray());
-
-            privateKey = (PrivateKey) keystore.getKey(key,
-                    password.toCharArray());
-        } catch (Exception e) {
-            logger.error("Exception:", e);
-        }
-
-        if (privateKey == null) {
-            logger.error("Failed to retrieve private key from keystore");
-        }
-
-        return privateKey;
     }
 
     private static KeyStore loadKeyStore(final String name) throws IOException {
