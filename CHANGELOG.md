@@ -1,9 +1,19 @@
 # Change Log
 
-## [2.1.30](https://github.com/networknt/light-spa-4j/tree/2.1.30) (2023-11-20)
+## [2.1.31](https://github.com/networknt/light-spa-4j/tree/2.1.31) (2024-01-15)
 
 
 **Merged pull requests:**
+
+
+- fixes \#101 update test case to use jwks endpoint [\#102](https://github.com/networknt/light-spa-4j/pull/102) ([stevehu](https://github.com/stevehu))
+- fixes \#99 update the config file to remove the environment variables [\#100](https://github.com/networknt/light-spa-4j/pull/100) ([stevehu](https://github.com/stevehu))
+## [2.1.30](https://github.com/networknt/light-spa-4j/tree/2.1.30) (2023-11-21)
+
+
+**Merged pull requests:**
+
+
 
 
 ## [2.1.29](https://github.com/networknt/light-spa-4j/tree/2.1.29) (2023-11-19)
