@@ -402,6 +402,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     @Override
     public void register() {
-        ModuleRegistry.registerModule(StatelessAuthConfig.CONFIG_NAME, StatelessAuthHandler.class.getName(), Config.getInstance().getJsonMapConfigNoCache(StatelessAuthConfig.CONFIG_NAME), null);
+        ModuleRegistry.registerModule(StatelessAuthConfig.CONFIG_NAME, StatelessAuthHandler.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(StatelessAuthConfig.CONFIG_NAME), null);
     }
 }
