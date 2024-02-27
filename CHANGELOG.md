@@ -9,6 +9,8 @@
 - [pre-commit.ci] pre-commit autoupdate [\#107](https://github.com/networknt/light-spa-4j/pull/107) ([pre-commit-ci](https://github.com/apps/pre-commit-ci))
 - fixes \#105 add pre-commit hook and apply it [\#106](https://github.com/networknt/light-spa-4j/pull/106) ([stevehu](https://github.com/stevehu))
 - fixes \#103 Use NoneDecryptedInstance to load the config for registerM… [\#104](https://github.com/networknt/light-spa-4j/pull/104) ([stevehu](https://github.com/stevehu))
+
+
 ## [2.1.31](https://github.com/networknt/light-spa-4j/tree/2.1.31) (2024-01-16)
 
 
