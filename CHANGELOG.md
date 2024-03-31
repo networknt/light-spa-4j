@@ -1,5 +1,14 @@
 # Change Log
 
+## [2.1.33](https://github.com/networknt/light-spa-4j/tree/2.1.33) (2024-03-31)
+
+
+**Merged pull requests:**
+
+
+- fixes \#108 upgrade google api and client to the latest [\#109](https://github.com/networknt/light-spa-4j/pull/109) ([stevehu](https://github.com/stevehu))
+
+
 ## [2.1.32](https://github.com/networknt/light-spa-4j/tree/2.1.32) (2024-02-27)
 
 
