@@ -1,5 +1,13 @@
 # Change Log
 
+## [2.1.34](https://github.com/networknt/light-spa-4j/tree/2.1.34) (2024-06-22)
+
+
+**Merged pull requests:**
+
+
+
+
 ## [2.1.33](https://github.com/networknt/light-spa-4j/tree/2.1.33) (2024-03-31)
 
 
