@@ -108,11 +108,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
     static {
-        // The SPA server can be based on OpenAPI, GraphQL or Hybrid, check if openapi-security.yml exists first
-        securityConfig = SecurityConfig.load(OPENAPI_SECURITY_CONFIG);
-        if(securityConfig.getMappedConfig() == null) securityConfig = SecurityConfig.load(GRAPHQL_SECURITY_CONFIG);
-        if(securityConfig.getMappedConfig() == null) securityConfig = SecurityConfig.load(HYBRID_SECURITY_CONFIG);
-        if(securityConfig.getMappedConfig() == null) securityConfig = SecurityConfig.load(JwtVerifier.SECURITY_CONFIG);
+        securityConfig = SecurityConfig.load();
         jwtVerifier = new JwtVerifier(securityConfig);
     }
 
