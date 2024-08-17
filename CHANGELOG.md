@@ -1,5 +1,12 @@
 # Change Log
 
+## [2.1.35](https://github.com/networknt/light-spa-4j/tree/2.1.35) (2024-08-17)
+
+
+**Merged pull requests:**
+
+
+- fixes \#111 use only security.yml for SecurityConfig [\#112](https://github.com/networknt/light-spa-4j/pull/112) ([stevehu](https://github.com/stevehu))
 ## [2.1.34](https://github.com/networknt/light-spa-4j/tree/2.1.34) (2024-06-22)
 
 
