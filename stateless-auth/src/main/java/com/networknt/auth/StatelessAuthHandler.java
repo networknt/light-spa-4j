@@ -92,10 +92,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
     private static final String REFRESH_TOKEN_RESPONSE_EMPTY = "ERR10037";
-    private static final String OPENAPI_SECURITY_CONFIG = "openapi-security";
-    private static final String SWAGGER_SECURITY_CONFIG = "swagger-security";
-    private static final String GRAPHQL_SECURITY_CONFIG = "graphql-security";
-    private static final String HYBRID_SECURITY_CONFIG = "hybrid-security";
     private static final String ACCESS_TOKEN = "accessToken";
     private static final String REFRESH_TOKEN = "refreshToken";
     private static final String USER_TYPE = "userType";
@@ -133,7 +129,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
                 return;
             }
-            // use the code and client_id, client_secret to get an access token in jwt format
             String csrf = Util.getUUID();
             TokenRequest request = new AuthorizationCodeRequest();
             ((AuthorizationCodeRequest) request).setAuthCode(code);
