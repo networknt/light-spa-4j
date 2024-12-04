@@ -98,6 +98,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String USER_ID = "userId";
     protected static final String SCOPES = "scopes";
     private static final String SCOPE = "scope";
+    private static final String SCP = "scp";
 
     public static StatelessAuthConfig config =
             (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
@@ -134,6 +135,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
             Result<TokenResponse> result = OauthHelper.getTokenResult(request);
+            if(logger.isDebugEnabled()) logger.debug("result = {}", result);
             if (result.isFailure()) {
                 Status status = result.getError();
                 // we don't have access token in the response. Must be a status object.
@@ -143,7 +145,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 return;
             }
             List scopes = setCookies(exchange, result.getResult(), csrf);
-            if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
+            if(logger.isDebugEnabled()) logger.debug("scopes = {}", scopes);
+            if (config.getRedirectUri() != null && !config.getRedirectUri().isEmpty()) {
                 exchange.setStatusCode(StatusCodes.OK);
                 Map<String, Object> rs = new HashMap<>();
                 rs.put(SCOPES, scopes);
@@ -314,8 +317,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             claims = jwtVerifier.verifyJwt(accessToken, true, true);
             roles = claims.getStringClaimValue(Constants.ROLES_STRING);
             userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
-            userId = claims.getStringClaimValue(Constants.USER_ID_STRING);
-            scopes = claims.getStringListClaimValue(SCOPE);
+            userId = claims.getStringClaimValue(Constants.UID_STRING);
+            scopes = claims.getStringListClaimValue(SCP);
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
