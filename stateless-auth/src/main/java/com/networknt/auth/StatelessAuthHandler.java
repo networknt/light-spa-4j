@@ -317,6 +317,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         try {
             claims = jwtVerifier.verifyJwt(accessToken, true, true);
             roles = claims.getStringClaimValue(ROLE);
+            if(roles == null) {
+                roles = "user"; // default role for all authenticated users.
+            }
             userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
             userId = claims.getStringClaimValue(Constants.UID_STRING);
             scopes = claims.getStringListClaimValue(SCP);
