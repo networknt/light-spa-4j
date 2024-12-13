@@ -99,6 +99,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     protected static final String SCOPES = "scopes";
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
+    private static final String ROLE = "role";
 
     public static StatelessAuthConfig config =
             (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
@@ -315,7 +316,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         List<String> scopes = null;
         try {
             claims = jwtVerifier.verifyJwt(accessToken, true, true);
-            roles = claims.getStringClaimValue(Constants.ROLES_STRING);
+            roles = claims.getStringClaimValue(ROLE);
             userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
             userId = claims.getStringClaimValue(Constants.UID_STRING);
             scopes = claims.getStringListClaimValue(SCP);
