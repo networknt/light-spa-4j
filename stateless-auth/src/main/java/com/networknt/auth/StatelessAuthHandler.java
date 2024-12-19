@@ -119,7 +119,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /authorization path. Pass to the next handler if path is not matched.
-        if(logger.isDebugEnabled()) logger.debug("exchange path = " + exchange.getRelativePath() + " config path = " + config.getAuthPath());
+        if(logger.isDebugEnabled())
+            logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getAuthPath());
 
         if(exchange.getRelativePath().equals(config.getAuthPath())) {
             // first time authentication and return both access and refresh tokens in cookies
@@ -127,7 +128,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             String code = deque == null ? null : deque.getFirst();
             if (logger.isDebugEnabled()) logger.debug("code = {}", code);
             // check if code is in the query parameter
-            if (code == null || code.trim().length() == 0) {
+            if (code == null || code.trim().isEmpty()) {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
                 return;
             }
@@ -312,6 +313,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         String roles = null;
         String userType = null;
         String userId = null;
+        String host = null;
         // The scopes list is returned and will be part of the response.
         List<String> scopes = null;
         try {
@@ -323,6 +325,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
             userId = claims.getStringClaimValue(Constants.UID_STRING);
             scopes = claims.getStringListClaimValue(SCP);
+            host = claims.getStringClaimValue(Constants.HOST_STRING);
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
@@ -370,7 +373,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                     .setSecure(config.cookieSecure));
         }
-        // this is another csrf token in cookie and it is accessible for Javascript.
+        if(host != null) {
+            exchange.setResponseCookie(new CookieImpl(Constants.HOST_STRING, host)
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setMaxAge(expiresIn)
+                    .setHttpOnly(false)
+                    .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                    .setSecure(config.cookieSecure));
+        }
+        // this is another csrf token in cookie, and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(Constants.CSRF_STRING, csrf)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
