@@ -314,6 +314,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         String userType = null;
         String userId = null;
         String host = null;
+        String email = null;
         // The scopes list is returned and will be part of the response.
         List<String> scopes = null;
         try {
@@ -326,6 +327,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             userId = claims.getStringClaimValue(Constants.UID_STRING);
             scopes = claims.getStringListClaimValue(SCP);
             host = claims.getStringClaimValue(Constants.HOST_STRING);
+            email = claims.getStringClaimValue(Constants.EML_STRING);
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
@@ -347,7 +349,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setHttpOnly(true)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
-        // this is user info in cookie and it is accessible for Javascript.
+        // this is user info in cookie, and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(USER_ID, userId)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
@@ -382,6 +384,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                     .setSecure(config.cookieSecure));
         }
+        if(email != null) {
+            exchange.setResponseCookie(new CookieImpl(Constants.EMAIL, email)
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setMaxAge(expiresIn)
+                    .setHttpOnly(false)
+                    .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                    .setSecure(config.cookieSecure));
+        }
+
         // this is another csrf token in cookie, and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(Constants.CSRF_STRING, csrf)
                 .setDomain(config.cookieDomain)
