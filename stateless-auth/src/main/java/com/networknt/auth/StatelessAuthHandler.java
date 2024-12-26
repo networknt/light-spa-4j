@@ -301,6 +301,37 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure);
             exchange.setResponseCookie(rolesCookie);
         }
+        Cookie hostCookie = exchange.getRequestCookie(Constants.HOST);
+        if(hostCookie != null) {
+            hostCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(hostCookie);
+        }
+        Cookie emailCookie = exchange.getRequestCookie(Constants.EMAIL);
+        if(emailCookie != null) {
+            emailCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(emailCookie);
+        }
+        Cookie eidCookie = exchange.getRequestCookie(Constants.EID);
+        if(eidCookie != null) {
+            eidCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(false)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(eidCookie);
+        }
+
     }
 
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
@@ -313,6 +344,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         String roles = null;
         String userType = null;
         String userId = null;
+        String eid = null;
         String host = null;
         String email = null;
         // The scopes list is returned and will be part of the response.
@@ -325,6 +357,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             }
             userType = claims.getStringClaimValue(Constants.USER_TYPE);
             userId = claims.getStringClaimValue(Constants.UID);
+            eid = claims.getStringClaimValue(Constants.EID);
             scopes = claims.getStringListClaimValue(SCP);
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
@@ -386,6 +419,15 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
         if(email != null) {
             exchange.setResponseCookie(new CookieImpl(Constants.EMAIL, email)
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setMaxAge(expiresIn)
+                    .setHttpOnly(false)
+                    .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                    .setSecure(config.cookieSecure));
+        }
+        if(eid != null) {
+            exchange.setResponseCookie(new CookieImpl(Constants.EID, eid)
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)
