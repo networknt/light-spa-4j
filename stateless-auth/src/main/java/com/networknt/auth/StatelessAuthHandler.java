@@ -173,7 +173,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 jwt = cookie.getValue();
                 // verify the jwt without caring about expiration and compare csrf token
                 JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
-                String jwtCsrf = claims.getStringClaimValue(Constants.CSRF_STRING);
+                String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
@@ -259,7 +259,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure);
             exchange.setResponseCookie(refreshTokenCookie);
         }
-        Cookie csrfCookie = exchange.getRequestCookie(Constants.CSRF_STRING);
+        Cookie csrfCookie = exchange.getRequestCookie(Constants.CSRF);
         if(csrfCookie != null) {
             csrfCookie.setMaxAge(0)
                     .setValue("")
@@ -291,7 +291,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure);
             exchange.setResponseCookie(userTypeCookie);
         }
-        Cookie rolesCookie = exchange.getRequestCookie(Constants.ROLES_STRING);
+        Cookie rolesCookie = exchange.getRequestCookie(Constants.ROLES);
         if(rolesCookie != null) {
             rolesCookie.setMaxAge(0)
                     .setValue("")
@@ -323,11 +323,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if(roles == null) {
                 roles = "user"; // default role for all authenticated users.
             }
-            userType = claims.getStringClaimValue(Constants.USER_TYPE_STRING);
-            userId = claims.getStringClaimValue(Constants.UID_STRING);
+            userType = claims.getStringClaimValue(Constants.USER_TYPE);
+            userId = claims.getStringClaimValue(Constants.UID);
             scopes = claims.getStringListClaimValue(SCP);
-            host = claims.getStringClaimValue(Constants.HOST_STRING);
-            email = claims.getStringClaimValue(Constants.EML_STRING);
+            host = claims.getStringClaimValue(Constants.HOST);
+            email = claims.getStringClaimValue(Constants.EML);
         } catch (InvalidJwtException e) {
             logger.error("Exception: ", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
@@ -367,7 +367,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure));
         }
         if(roles != null) {
-            exchange.setResponseCookie(new CookieImpl(Constants.ROLES_STRING, roles)
+            exchange.setResponseCookie(new CookieImpl(Constants.ROLES, roles)
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)
@@ -376,7 +376,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure));
         }
         if(host != null) {
-            exchange.setResponseCookie(new CookieImpl(Constants.HOST_STRING, host)
+            exchange.setResponseCookie(new CookieImpl(Constants.HOST, host)
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)
@@ -395,7 +395,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
 
         // this is another csrf token in cookie, and it is accessible for Javascript.
-        exchange.setResponseCookie(new CookieImpl(Constants.CSRF_STRING, csrf)
+        exchange.setResponseCookie(new CookieImpl(Constants.CSRF, csrf)
                 .setDomain(config.cookieDomain)
                 .setPath(config.cookiePath)
                 .setMaxAge(expiresIn)
