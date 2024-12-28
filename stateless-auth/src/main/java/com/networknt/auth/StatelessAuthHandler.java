@@ -227,7 +227,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     setCookies(exchange, response, csrf);
                     jwt = response.getAccessToken();
                 } else {
-                    if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token", result.getError());
+                    if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
                     // remove the cookies to log out the user
                     removeCookies(exchange);
                     exchange.endExchange();
