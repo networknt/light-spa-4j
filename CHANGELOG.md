@@ -1,5 +1,19 @@
 # Change Log
 
+## [2.2.0](https://github.com/networknt/light-spa-4j/tree/2.2.0) (2025-02-11)
+
+
+**Merged pull requests:**
+
+
+- fixes \#128 add eid to the cookie and remove host, email and eid cookies [\#129](https://github.com/networknt/light-spa-4j/pull/129) ([stevehu](https://github.com/stevehu))
+- fixes \#126 shorten some constans [\#127](https://github.com/networknt/light-spa-4j/pull/127) ([stevehu](https://github.com/stevehu))
+- fixes \#124 add eml to the cookie from the token [\#125](https://github.com/networknt/light-spa-4j/pull/125) ([stevehu](https://github.com/stevehu))
+- Issue122 [\#123](https://github.com/networknt/light-spa-4j/pull/123) ([stevehu](https://github.com/stevehu))
+- fixes \#119 update the roles to role in parsing jwt token claims [\#120](https://github.com/networknt/light-spa-4j/pull/120) ([stevehu](https://github.com/stevehu))
+- fixes \#117 update stateless auth handler to get scp and uid [\#118](https://github.com/networknt/light-spa-4j/pull/118) ([stevehu](https://github.com/stevehu))
+
+
 ## [2.1.37](https://github.com/networknt/light-spa-4j/tree/2.1.37) (2024-09-20)
 
 
