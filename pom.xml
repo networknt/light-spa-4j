@@ -105,7 +105,7 @@
         <version.google-api>2.6.0</version.google-api>
         <version.google-client>1.44.2</version.google-client>
         <version.facebook>3.9.0</version.facebook>
-        <version.redisson>3.44.0</version.redisson>
+        <version.redisson>3.45.1</version.redisson>
         <versions.maven-version>2.4</versions.maven-version>
         <version.javadoc-packagelist-plugin>1.0.0</version.javadoc-packagelist-plugin>
         <version.maven-javadoc>3.4.1</version.maven-javadoc>
