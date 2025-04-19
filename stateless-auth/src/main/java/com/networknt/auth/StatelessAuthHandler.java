@@ -30,6 +30,7 @@ import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.Util;
+import com.networknt.utility.UuidUtil;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
 import io.undertow.server.HttpServerExchange;
@@ -132,7 +133,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
                 return;
             }
-            String csrf = Util.getUUID();
+            String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
             TokenRequest request = new AuthorizationCodeRequest();
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
@@ -218,7 +219,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             String refreshToken = cookie.getValue();
             if(refreshToken != null) {
                 TokenRequest tokenRequest = new RefreshTokenRequest();
-                String csrf = Util.getUUID();
+                String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
                 tokenRequest.setCsrf(csrf);
                 ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
                 Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);

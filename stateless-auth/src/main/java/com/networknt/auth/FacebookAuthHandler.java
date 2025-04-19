@@ -10,6 +10,7 @@ import com.networknt.handler.MiddlewareHandler;
 import com.networknt.monad.Result;
 import com.networknt.status.Status;
 import com.networknt.utility.Util;
+import com.networknt.utility.UuidUtil;
 import com.restfb.DefaultFacebookClient;
 import com.restfb.FacebookClient;
 import com.restfb.Parameter;
@@ -73,7 +74,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                     map.put("lastName", lastName);
                     Result<String> result = PortalClient.createSocialUser(map, config.getBootstrapToken());
                 }
-                String csrf = Util.getUUID();
+                String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
                 TokenRequest request = new ClientAuthenticatedUserRequest("social", email, "user");
                 request.setCsrf(csrf);
                 Result<TokenResponse> result = OauthHelper.getTokenResult(request);

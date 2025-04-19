@@ -10,6 +10,7 @@ import com.networknt.handler.MiddlewareHandler;
 import com.networknt.monad.Result;
 import com.networknt.status.Status;
 import com.networknt.utility.Util;
+import com.networknt.utility.UuidUtil;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.StatusCodes;
 import org.slf4j.Logger;
@@ -80,7 +81,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
                 map.put("lastName", familyName);
                 Result<String> result = PortalClient.createSocialUser(map, config.getBootstrapToken());
             }
-            String csrf = Util.getUUID();
+            String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
             TokenRequest request = new ClientAuthenticatedUserRequest("social", email, "user");
             request.setCsrf(csrf);
             Result<TokenResponse> result = OauthHelper.getTokenResult(request);
