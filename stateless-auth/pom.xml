@@ -21,12 +21,13 @@
     <parent>
         <groupId>com.networknt</groupId>
         <artifactId>light-spa-4j</artifactId>
-        <version>2.2.2</version>
-        <relativePath>..</relativePath>
+        <version>2.2.3-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
     </parent>
 
     <artifactId>stateless-auth</artifactId>
     <packaging>jar</packaging>
+    <name>stateless-auth</name>
     <description>A auth handler that handles OAuth 2.0 authorization code and get jwt token for the Single Page Applications.</description>
 
     <dependencies>
