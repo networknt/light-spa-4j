@@ -1,0 +1,14 @@
+# msal-exchange.yml
+
+# Indicates if the MSAL Exchange is enabled
+enabled: ${msal-exchange.enabled:true}
+# The new path your React SPA will call with the Microsoft token
+exchangePath: ${msal-exchange.exchangePath:/auth/ms/exchange}
+# The logout path can remain the same
+logoutPath: ${msal-exchange.exchangePath:logoutPath:/auth/ms/logout}
+# Cookie settings can be reused
+cookieDomain: ${msal-exchange.cookieDomain:localhost}
+# Cookie path
+cookiePath: ${msal-exchange.cookiePath:/}
+# If Cookie is secured.
+cookieSecure: ${msal-exchange.cookieSecure:false}

@@ -119,6 +119,7 @@
 
     <modules>
         <module>stateless-auth</module>
+        <module>msal-exchange</module>
     </modules>
 
     <dependencyManagement>

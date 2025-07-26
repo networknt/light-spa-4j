@@ -1,19 +1,3 @@
-/*
- * Copyright (c) 2018 Network New Technologies Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.networknt.auth;
 
 import com.networknt.client.oauth.*;
@@ -26,10 +10,8 @@ import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
-import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
-import com.networknt.utility.Util;
 import com.networknt.utility.UuidUtil;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
@@ -40,59 +22,26 @@ import io.undertow.server.handlers.CookieSameSiteMode;
 import io.undertow.util.Headers;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
+import org.jose4j.jwt.consumer.ErrorCodeValidator;
+import org.jose4j.jwt.consumer.ErrorCodes;
 import org.jose4j.jwt.consumer.InvalidJwtException;
+import org.jose4j.jwt.consumer.JwtContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
-/**
- * This is a handler that receives authorization code from OAuth 2.0 provider with authorization grant type.
- * It will take the redirected code and get JWT token along with client_id and client_secret defined in
- * client.yml and secret.yml config files. Once the tokens are received, they will be sent to the browser
- * with cookies immediately.
- *
- * This middleware handler also handles CSRF token in the header to prevent CSRF attack. After this action,
- * all subsequent requests from the browser will have jwt token in cookies and a CSRF token in headers.
- *
- * This handler get the access token and expiresIn from cookie. If the token is about to expire, renew it.
- * Next the access token will be parsed and put into the auditInfo object so that subsequent logic can
- * compare the csrf token from the jwt with the one from header.
- *
- * This handler usually will be used on the light-router and it must be injected after the CORS handler or tracing
- * handler is CORS is not enabled.
- *
- * If token does not exist or is not matched, an error will be returned. For the stateless SPA application,
- * the jwt access token is passed in a cookie instead of normal API to API calls with jwt token in Authorization
- * header.
- *
- * If the token is expired, it will use the refresh token to renew the access token and put both new access token
- * and refresh token into the response cookies in the same request.
- *
- * This is a handler that checks if CSRF token exists in the header for services exposed to Single Page
- * Application running on browsers. Normally, this handler only needs to be injected on the services in
- * the DMZ. For example, an aggregator or light-router to aggregate calls to multiple services or router
- * calls to multiple services from internal network.
- *
- * It compares the token from header to the token inside the JWT to ensure that it matches. If token does
- * not exist or is not matched, an error will be returned. For the stateless SPA application, the jwt
- * access token is passed in a cookie instead of normal API to API calls with jwt token in Authorization
- * header.
- *
- * This handler is a middleware handler and must be injected in handler.yml if needed.
- *
- * @author Steve Hu
- */
-public class StatelessAuthHandler implements MiddlewareHandler {
-    private static final Logger logger = LoggerFactory.getLogger(StatelessAuthHandler.class);
-    private static final String CODE = "code";
-    private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
-    private static final String JWT_NOT_FOUND_IN_COOKIES = "ERR10040";
+public class MsalTokenExchangeHandler implements MiddlewareHandler {
+    private static final Logger logger = LoggerFactory.getLogger(MsalTokenExchangeHandler.class);
+    private static final String JWT_BEARER_TOKEN_MISSING = "ERR11000"; // New error code
+    private static final String TOKEN_EXCHANGE_FAILED = "ERR11001"; // New error code
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
     private static final String CSRF_HEADER_MISSING = "ERR10036";
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
-    private static final String REFRESH_TOKEN_RESPONSE_EMPTY = "ERR10037";
+
     private static final String ACCESS_TOKEN = "accessToken";
     private static final String REFRESH_TOKEN = "refreshToken";
     private static final String USER_TYPE = "userType";
@@ -102,78 +51,104 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public static StatelessAuthConfig config =
-            (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
+    public static MsalExchangeConfig config =
+            (MsalExchangeConfig)Config.getInstance().getJsonObjectConfig(MsalExchangeConfig.CONFIG_NAME, MsalExchangeConfig.class);
+
+    // Two separate JwtVerifier instances ---
     static SecurityConfig securityConfig;
-    static JwtVerifier jwtVerifier;
+    static SecurityConfig msalSecurityConfig;
+    static JwtVerifier internalJwtVerifier; // For tokens from your second provider (in cookies)
+    static JwtVerifier msalJwtVerifier;     // For tokens from Microsoft for token exchange
+
     static {
+        // Verifier for your internal tokens (from cookies)
         securityConfig = SecurityConfig.load();
-        jwtVerifier = new JwtVerifier(securityConfig);
+        internalJwtVerifier = new JwtVerifier(securityConfig);
+
+        // Verifier for incoming Microsoft tokens. Assumes a "msalJwt" section in security.yml
+        try {
+            msalSecurityConfig = SecurityConfig.load("security-msal");
+            msalJwtVerifier = new JwtVerifier(msalSecurityConfig);
+        } catch(ConfigException e) {
+            logger.error("Failed to load msalJwt configuration from security.yml. Microsoft token validation will fail.", e);
+            msalJwtVerifier = null;
+        }
     }
 
     private volatile HttpHandler next;
 
-    public StatelessAuthHandler() {
-        logger.info("StatelessAuthHandler is constructed.");
+    public MsalTokenExchangeHandler() {
+        logger.info("MsalTokenExchangeHandler is constructed.");
     }
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
-        // This handler only cares about /authorization path. Pass to the next handler if path is not matched.
-        if(logger.isDebugEnabled())
-            logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getAuthPath());
+        if (exchange.getRelativePath().equals(config.getExchangePath())) {
+            // token exchange request handling.
+            if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler exchange is called.");
 
-        if(exchange.getRelativePath().equals(config.getAuthPath())) {
-            // first time authentication and return both access and refresh tokens in cookies
-            Deque<String> deque = exchange.getQueryParameters().get(CODE);
-            String code = deque == null ? null : deque.getFirst();
-            if (logger.isDebugEnabled()) logger.debug("code = {}", code);
-            // check if code is in the query parameter
-            if (code == null || code.trim().isEmpty()) {
-                setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
+            String authHeader = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
+            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+                setExchangeStatus(exchange, JWT_BEARER_TOKEN_MISSING);
                 return;
             }
+            String microsoftToken = authHeader.substring(7);
+
+            // --- Validate the incoming Microsoft Token ---
+            if(msalJwtVerifier == null) {
+                // handle case where config failed to load
+                throw new Exception("MsalJwtVerifier is not initialized.");
+            }
+            try {
+                // We only need to verify it, we don't need the claims for much.
+                // The second provider will do its own validation and claim mapping.
+                // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
+                String reqPath = exchange.getRequestPath();
+                msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
+            } catch (InvalidJwtException e) {
+                logger.error("Microsoft token validation failed.", e);
+                setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
+                return;
+            }
+
+            // --- Perform Token Exchange ---
             String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
-            TokenRequest request = new AuthorizationCodeRequest();
-            ((AuthorizationCodeRequest) request).setAuthCode(code);
-            request.setCsrf(csrf);
+            TokenExchangeRequest request = new TokenExchangeRequest();
+            request.setSubjectToken(microsoftToken);
+            request.setSubjectTokenType("urn:ietf:params:oauth:token-type:jwt");
+            request.setCsrf(csrf); // The CSRF for the *new* token we are getting
+
             Result<TokenResponse> result = OauthHelper.getTokenResult(request);
-            if(logger.isDebugEnabled()) logger.debug("result = {}", result);
             if (result.isFailure()) {
-                Status status = result.getError();
-                // we don't have access token in the response. Must be a status object.
-                exchange.setStatusCode(status.getStatusCode());
-                exchange.getResponseSender().send(status.toString());
-                logger.error(status.toString());
+                logger.error("Token exchange failed with status: {}", result.getError());
+                setExchangeStatus(exchange, TOKEN_EXCHANGE_FAILED, result.getError().getDescription());
                 return;
             }
-            List scopes = setCookies(exchange, result.getResult(), csrf);
-            if(logger.isDebugEnabled()) logger.debug("scopes = {}", scopes);
-            if (config.getRedirectUri() != null && !config.getRedirectUri().isEmpty()) {
-                exchange.setStatusCode(StatusCodes.OK);
-                Map<String, Object> rs = new HashMap<>();
-                rs.put(SCOPES, scopes);
-                // add redirectUri and denyUri to the returned json.
-                rs.put("redirectUri", config.redirectUri);
-                rs.put("denyUri", config.denyUri != null ? config.denyUri : config.redirectUri);
-                exchange.getResponseSender().send(JsonMapper.toJson(rs));
-            } else {
-                exchange.setStatusCode(StatusCodes.OK);
-                exchange.endExchange();
-            }
-            return;
+
+            // --- The setCookies logic is identical ---
+            List<String> scopes = setCookies(exchange, result.getResult(), csrf);
+            if(logger.isTraceEnabled()) logger.trace("scopes = {}", scopes);
+
+            exchange.setStatusCode(StatusCodes.OK);
+            exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
+            // Return the scopes in the response body
+            Map<String, Object> rs = new HashMap<>();
+            rs.put(SCOPES, scopes);
+            exchange.getResponseSender().send(JsonMapper.toJson(rs));
         } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
+            // logout request handling, this is the same as StatelessAuthHandler to remove the cookies.
+            if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler logout is called.");
             removeCookies(exchange);
             exchange.endExchange();
-            return;
         } else {
-            // first get the jwt token from httpOnly cookie sent by first step authentication
+            // This is the subsequent request handling after the token exchange. Here we verify the JWT in the cookies.
+            if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler is called for subsequent request.");
             String jwt = null;
             Cookie cookie = exchange.getRequestCookie(ACCESS_TOKEN);
             if(cookie != null) {
                 jwt = cookie.getValue();
-                // verify the jwt without caring about expiration and compare csrf token
-                JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
+                // verify the jwt with the internal verifier, the token is from the light-oauth token exchange.
+                JwtClaims claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true);
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
@@ -201,8 +176,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // renew the token and set the cookies
                 jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
             }
-
-            if(logger.isDebugEnabled()) logger.debug("jwt = " + jwt);
+            if(logger.isTraceEnabled()) logger.trace("jwt = " + jwt);
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
@@ -213,6 +187,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
     }
 
+    // --- The following methods can be copied directly or moved to a shared utility class ---
     private String renewToken(HttpServerExchange exchange, Cookie cookie) throws Exception {
         String jwt = null;
         if(cookie != null) {
@@ -332,7 +307,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure);
             exchange.setResponseCookie(eidCookie);
         }
-
     }
 
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
@@ -351,7 +325,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         // The scopes list is returned and will be part of the response.
         List<String> scopes = null;
         try {
-            claims = jwtVerifier.verifyJwt(accessToken, true, true);
+            JwtContext context = internalJwtVerifier.parseJwt(accessToken);
+            claims = context.getJwtClaims();
             roles = claims.getStringClaimValue(ROLE);
             if(roles == null) {
                 roles = "user"; // default role for all authenticated users.
@@ -454,7 +429,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     }
 
     @Override
-    public MiddlewareHandler setNext(final HttpHandler next) {
+    public MiddlewareHandler setNext(HttpHandler next) {
         Handlers.handlerNotNull(next);
         this.next = next;
         return this;
@@ -467,6 +442,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     @Override
     public void register() {
-        ModuleRegistry.registerModule(StatelessAuthConfig.CONFIG_NAME, StatelessAuthHandler.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(StatelessAuthConfig.CONFIG_NAME), null);
+        ModuleRegistry.registerModule(MsalExchangeConfig.CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(MsalExchangeConfig.CONFIG_NAME), null);
     }
 }
