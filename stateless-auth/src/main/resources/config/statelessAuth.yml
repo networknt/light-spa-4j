@@ -22,6 +22,12 @@ cookiePath: ${statelessAuth.cookiePath:/}
 cookieTimeoutUri: ${statelessAuth.cookieTimeoutUri:/}
 # Cookie secured
 cookieSecure: ${statelessAuth.cookieSecure:true}
+# Session timeout in seconds. This is the time after which the session will expire.
+# Default is 3600 seconds (1 hour).
+sessionTimeout: ${statelessAuth.sessionTimeout:3600}
+# Remember me timeout in seconds. This is the time after which the session will expire
+# if rememberMe is set true during login. Default is 604800 seconds (7 days).
+rememberMeTimeout: ${statelessAuth.rememberMeTimeout:604800}
 
 # Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. And it is created with a special tool only available to customers.
 bootstrapToken: ${statelessAuth.bootstrapToken:token}

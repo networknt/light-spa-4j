@@ -12,3 +12,9 @@ cookieDomain: ${msal-exchange.cookieDomain:localhost}
 cookiePath: ${msal-exchange.cookiePath:/}
 # If Cookie is secured.
 cookieSecure: ${msal-exchange.cookieSecure:false}
+# Session timeout in seconds. This is the time after which the session will expire.
+# Default is 3600 seconds (1 hour).
+sessionTimeout: ${msal-exchange.sessionTimeout:3600}
+# Remember me timeout in seconds. This is the time after which the session will expire
+# if rememberMe is set true during login. Default is 604800 seconds (7 days).
+rememberMeTimeout: ${msal-exchange.rememberMeTimeout:604800}

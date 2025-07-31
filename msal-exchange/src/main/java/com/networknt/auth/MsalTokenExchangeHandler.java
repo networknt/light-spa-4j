@@ -354,7 +354,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
                 .setDomain(config.cookieDomain)
                 .setPath(config.getCookiePath())
-                .setMaxAge((remember == null || remember.equals("N")) ? expiresIn : 7776000)  // 90 days if remember is "Y"
+                .setMaxAge((remember == null || remember.equals("N")) ? config.getSessionTimeout() : config.getRememberMeTimeout())
                 .setHttpOnly(true)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));

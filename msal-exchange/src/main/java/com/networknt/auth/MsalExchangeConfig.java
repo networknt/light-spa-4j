@@ -8,6 +8,8 @@ public class MsalExchangeConfig {
     String cookieDomain;
     String cookiePath;
     boolean cookieSecure;
+    int sessionTimeout;
+    int rememberMeTimeout;
 
     public MsalExchangeConfig() {
     }
@@ -58,5 +60,21 @@ public class MsalExchangeConfig {
 
     public void setCookieSecure(boolean cookieSecure) {
         this.cookieSecure = cookieSecure;
+    }
+
+    public int getSessionTimeout() {
+        return sessionTimeout;
+    }
+
+    public void setSessionTimeout(int sessionTimeout) {
+        this.sessionTimeout = sessionTimeout;
+    }
+
+    public int getRememberMeTimeout() {
+        return rememberMeTimeout;
+    }
+
+    public void setRememberMeTimeout(int rememberMeTimeout) {
+        this.rememberMeTimeout = rememberMeTimeout;
     }
 }

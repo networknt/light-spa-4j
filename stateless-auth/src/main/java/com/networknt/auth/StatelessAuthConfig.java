@@ -31,6 +31,9 @@ public class StatelessAuthConfig {
     String cookiePath;
     String cookieTimeoutUri;
     boolean cookieSecure;
+    int sessionTimeout;
+    int rememberMeTimeout;
+
     String bootstrapToken;
     String googlePath;
     String googleClientId;
@@ -97,6 +100,22 @@ public class StatelessAuthConfig {
     public boolean isCookieSecure() { return cookieSecure; }
 
     public void setCookieSecure(boolean cookieSecure) { this.cookieSecure = cookieSecure; }
+
+    public int getSessionTimeout() {
+        return sessionTimeout;
+    }
+
+    public void setSessionTimeout(int sessionTimeout) {
+        this.sessionTimeout = sessionTimeout;
+    }
+
+    public int getRememberMeTimeout() {
+        return rememberMeTimeout;
+    }
+
+    public void setRememberMeTimeout(int rememberMeTimeout) {
+        this.rememberMeTimeout = rememberMeTimeout;
+    }
 
     public String getDenyUri() {
         return denyUri;
