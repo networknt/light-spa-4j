@@ -118,7 +118,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             request.setSubjectTokenType("urn:ietf:params:oauth:token-type:jwt");
             request.setCsrf(csrf); // The CSRF for the *new* token we are getting
 
-            Result<TokenResponse> result = OauthHelper.getTokenResult(request);
+            Result<TokenResponse> result = OauthHelper.getTokenFromTokenExchangeResult(request);
             if (result.isFailure()) {
                 logger.error("Token exchange failed with status: {}", result.getError());
                 setExchangeStatus(exchange, TOKEN_EXCHANGE_FAILED, result.getError().getDescription());
