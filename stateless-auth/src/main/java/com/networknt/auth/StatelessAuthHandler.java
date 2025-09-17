@@ -186,7 +186,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = " + headerCsrf + " jwtCsrf = " + jwtCsrf);
+                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
                 if(!headerCsrf.equals(jwtCsrf)) {
                     setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
                     return;
@@ -202,7 +202,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
             }
 
-            if(logger.isDebugEnabled()) logger.debug("jwt = " + jwt);
+            if(logger.isDebugEnabled()) logger.debug("jwt = {}", jwt);
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
