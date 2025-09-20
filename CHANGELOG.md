@@ -7,6 +7,8 @@
 
 
 - [pre-commit.ci] pre-commit autoupdate [\#137](https://github.com/networknt/light-spa-4j/pull/137) ([pre-commit-ci](https://github.com/apps/pre-commit-ci))
+
+
 ## [2.3.0](https://github.com/networknt/light-spa-4j/tree/2.3.0) (2025-06-25)
 
 
