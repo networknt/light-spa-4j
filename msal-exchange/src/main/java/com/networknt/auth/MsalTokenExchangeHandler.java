@@ -83,6 +83,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
+        String reqPath = exchange.getRequestPath();
         if (exchange.getRelativePath().equals(config.getExchangePath())) {
             // token exchange request handling.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler exchange is called.");
@@ -103,7 +104,6 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // We only need to verify it, we don't need the claims for much.
                 // The second provider will do its own validation and claim mapping.
                 // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
-                String reqPath = exchange.getRequestPath();
                 msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
             } catch (InvalidJwtException e) {
                 logger.error("Microsoft token validation failed.", e);
@@ -148,7 +148,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             if(cookie != null) {
                 jwt = cookie.getValue();
                 // verify the jwt with the internal verifier, the token is from the light-oauth token exchange.
-                JwtClaims claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true);
+                JwtClaims claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
