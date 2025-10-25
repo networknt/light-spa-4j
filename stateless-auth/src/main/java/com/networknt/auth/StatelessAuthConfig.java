@@ -1,55 +1,372 @@
-/*
- * Copyright (c) 2016 Network New Technologies Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *      http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package com.networknt.auth;
 
+import com.networknt.config.Config;
+import com.networknt.config.schema.ConfigSchema;
+import com.networknt.config.schema.OutputFormat;
+import com.networknt.config.schema.BooleanField;
+import com.networknt.config.schema.IntegerField;
+import com.networknt.config.schema.StringField;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Map;
+
 /**
- * Created by steve on 29/09/16.
+ * Config class for StatelessAuthHandler.
  */
+@ConfigSchema(
+        configKey = "statelessAuth",
+        configName = "statelessAuth",
+        configDescription = "This handler is generic request handler for the OAuth 2.0 provider authorization code redirect.\n" +
+                "It receives the auth code and goes to the OAuth 2.0 provider to get the subject token. The jwt\n" +
+                "token is then sent to the browser with two cookies with splitting header/payload and signature.\n" +
+                "Another options is to keep the jwt in session and return sessionId to the browser. In either\n" +
+                "case, the csrf token will be send with a separate cookie.\n",
+        outputFormats = {OutputFormat.JSON_SCHEMA, OutputFormat.YAML}
+)
 public class StatelessAuthConfig {
+
     public static final String CONFIG_NAME = "statelessAuth";
+
+    // --- Constant Fields ---
+    private static final String ENABLED = "enabled";
+    private static final String REDIRECT_URI = "redirectUri";
+    private static final String DENY_URI = "denyUri";
+    private static final String ENABLE_HTTP2 = "enableHttp2";
+    private static final String AUTH_PATH = "authPath";
+    private static final String LOGOUT_PATH = "logoutPath";
+    private static final String COOKIE_DOMAIN = "cookieDomain";
+    private static final String COOKIE_PATH = "cookiePath";
+    private static final String COOKIE_TIMEOUT_URI = "cookieTimeoutUri";
+    private static final String COOKIE_SECURE = "cookieSecure";
+    private static final String SESSION_TIMEOUT = "sessionTimeout";
+    private static final String REMEMBER_ME_TIMEOUT = "rememberMeTimeout";
+    private static final String BOOTSTRAP_TOKEN = "bootstrapToken";
+    private static final String GOOGLE_PATH = "googlePath";
+    private static final String GOOGLE_CLIENT_ID = "googleClientId";
+    private static final String GOOGLE_CLIENT_SECRET = "googleClientSecret";
+    private static final String GOOGLE_REDIRECT_URI = "googleRedirectUri";
+    private static final String FACEBOOK_PATH = "facebookPath";
+    private static final String FACEBOOK_CLIENT_ID = "facebookClientId";
+    private static final String FACEBOOK_CLIENT_SECRET = "facebookClientSecret";
+    private static final String GITHUB_PATH = "githubPath";
+    private static final String GITHUB_CLIENT_ID = "githubClientId";
+    private static final String GITHUB_CLIENT_SECRET = "githubClientSecret";
+
+    private final Config config;
+    private Map<String, Object> mappedConfig;
+
+    // --- Annotated Fields ---
+
+    @BooleanField(
+            configFieldName = ENABLED,
+            externalizedKeyName = ENABLED,
+            description = "Indicate if the StatelessAuthHandler is enabled or not",
+            externalized = true,
+            defaultValue = "true"
+    )
     boolean enabled;
+
+    @StringField(
+            configFieldName = REDIRECT_URI,
+            externalizedKeyName = REDIRECT_URI,
+            description = "Once Authorization is done, which path the UI is redirected.",
+            externalized = true,
+            defaultValue = "https://localhost:3000/#/app/dashboard"
+    )
     String redirectUri;
+
+    @StringField(
+            configFieldName = DENY_URI,
+            externalizedKeyName = DENY_URI,
+            description = "An optional redirect uri if the user deny or cancel the authorization on the Consent page. Default to redirectUri if missing.",
+            externalized = true,
+            defaultValue = "https://localhost:3000/#/app/dashboard"
+    )
     String denyUri;
+
+    @BooleanField(
+            configFieldName = ENABLE_HTTP2,
+            externalizedKeyName = ENABLE_HTTP2,
+            description = "If HTTP2 should be used for backend calls (e.g., to the OAuth provider).",
+            externalized = true,
+            defaultValue = "false"
+    )
     boolean enableHttp2;
+
+    @StringField(
+            configFieldName = AUTH_PATH,
+            externalizedKeyName = AUTH_PATH,
+            description = "Request path for the authorization code handling.",
+            externalized = true,
+            defaultValue = "/authorization"
+    )
     String authPath;
+
+    @StringField(
+            configFieldName = LOGOUT_PATH,
+            externalizedKeyName = LOGOUT_PATH,
+            description = "Request path for the logout handling to remove HttpOnly access-token and other cookies.",
+            externalized = true,
+            defaultValue = "/logout"
+    )
     String logoutPath;
+
+    @StringField(
+            configFieldName = COOKIE_DOMAIN,
+            externalizedKeyName = COOKIE_DOMAIN,
+            description = "Cookie domain which is the original site.",
+            externalized = true,
+            defaultValue = "localhost"
+    )
     String cookieDomain;
+
+    @StringField(
+            configFieldName = COOKIE_PATH,
+            externalizedKeyName = COOKIE_PATH,
+            description = "Cookie path.",
+            externalized = true,
+            defaultValue = "/"
+    )
     String cookiePath;
+
+    @StringField(
+            configFieldName = COOKIE_TIMEOUT_URI,
+            externalizedKeyName = COOKIE_TIMEOUT_URI,
+            description = "Login uri, redirect to it once session is expired.",
+            externalized = true,
+            defaultValue = "/"
+    )
     String cookieTimeoutUri;
+
+    @BooleanField(
+            configFieldName = COOKIE_SECURE,
+            externalizedKeyName = COOKIE_SECURE,
+            description = "If Cookie is secured.",
+            externalized = true,
+            defaultValue = "true"
+    )
     boolean cookieSecure;
+
+    @IntegerField(
+            configFieldName = SESSION_TIMEOUT,
+            externalizedKeyName = SESSION_TIMEOUT,
+            description = "Session timeout in seconds. This is the time after which the session will expire.\n" +
+                    "Default is 3600 seconds (1 hour).\n",
+            externalized = true,
+            defaultValue = "3600"
+    )
     int sessionTimeout;
+
+    @IntegerField(
+            configFieldName = REMEMBER_ME_TIMEOUT,
+            externalizedKeyName = REMEMBER_ME_TIMEOUT,
+            description = "Remember me timeout in seconds. This is the time after which the session will expire\n" +
+                    "if rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
+            externalized = true,
+            defaultValue = "604800"
+    )
     int rememberMeTimeout;
 
+    @StringField(
+            configFieldName = BOOTSTRAP_TOKEN,
+            externalizedKeyName = BOOTSTRAP_TOKEN,
+            description = "Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. \n" +
+                    "And it is created with a special tool only available to customers.\n",
+            externalized = true,
+            defaultValue = "token"
+    )
     String bootstrapToken;
+
+    @StringField(
+            configFieldName = GOOGLE_PATH,
+            externalizedKeyName = GOOGLE_PATH,
+            description = "Google Auth Path.",
+            externalized = true,
+            defaultValue = "/google"
+    )
     String googlePath;
+
+    @StringField(
+            configFieldName = GOOGLE_CLIENT_ID,
+            externalizedKeyName = GOOGLE_CLIENT_ID,
+            description = "Google Client Id.",
+            externalized = true,
+            defaultValue = "google_client_id"
+    )
     String googleClientId;
+
+    @StringField(
+            configFieldName = GOOGLE_CLIENT_SECRET,
+            externalizedKeyName = GOOGLE_CLIENT_SECRET,
+            description = "Google Client Secret that is retrieved from the environment variable",
+            externalized = true,
+            defaultValue = "secret"
+    )
     String googleClientSecret;
+
+    @StringField(
+            configFieldName = GOOGLE_REDIRECT_URI,
+            externalizedKeyName = GOOGLE_REDIRECT_URI,
+            description = "Google Redirect URI.",
+            externalized = true,
+            defaultValue = "https://localhost:3000"
+    )
     String googleRedirectUri;
 
+    @StringField(
+            configFieldName = FACEBOOK_PATH,
+            externalizedKeyName = FACEBOOK_PATH,
+            description = "Facebook Auth Path.",
+            externalized = true,
+            defaultValue = "/facebook"
+    )
     String facebookPath;
+
+    @StringField(
+            configFieldName = FACEBOOK_CLIENT_ID,
+            externalizedKeyName = FACEBOOK_CLIENT_ID,
+            description = "Facebook Client Id.",
+            externalized = true,
+            defaultValue = "facebook_client_id"
+    )
     String facebookClientId;
+
+    @StringField(
+            configFieldName = FACEBOOK_CLIENT_SECRET,
+            externalizedKeyName = FACEBOOK_CLIENT_SECRET,
+            description = "Facebook Client Secret that is retrieved from the environment variable",
+            externalized = true,
+            defaultValue = "secret"
+    )
     String facebookClientSecret;
 
+    @StringField(
+            configFieldName = GITHUB_PATH,
+            externalizedKeyName = GITHUB_PATH,
+            description = "GitHub Auth Path.",
+            externalized = true,
+            defaultValue = "/github"
+    )
     String githubPath;
+
+    @StringField(
+            configFieldName = GITHUB_CLIENT_ID,
+            externalizedKeyName = GITHUB_CLIENT_ID,
+            description = "GitHub Client Id.",
+            externalized = true,
+            defaultValue = "github_client_id"
+    )
     String githubClientId;
+
+    @StringField(
+            configFieldName = GITHUB_CLIENT_SECRET,
+            externalizedKeyName = GITHUB_CLIENT_SECRET,
+            description = "GitHub Client Secret that is retrieved from the environment variable",
+            externalized = true,
+            defaultValue = "secret"
+    )
     String githubClientSecret;
 
-    public StatelessAuthConfig() {
+
+    // --- Constructor and Loading Logic ---
+
+    private StatelessAuthConfig() {
+        this(CONFIG_NAME);
     }
+
+    private StatelessAuthConfig(String configName) {
+        config = Config.getInstance();
+        mappedConfig = config.getJsonMapConfigNoCache(configName);
+        setConfigData();
+    }
+
+    public static StatelessAuthConfig load() {
+        return new StatelessAuthConfig();
+    }
+
+    public static StatelessAuthConfig load(String configName) {
+        return new StatelessAuthConfig(configName);
+    }
+
+    public void reload() {
+        mappedConfig = config.getJsonMapConfigNoCache(CONFIG_NAME);
+        setConfigData();
+    }
+
+    // --- Private Config Loader ---
+    private void setConfigData() {
+        Object object = mappedConfig.get(ENABLED);
+        if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);
+
+        object = mappedConfig.get(REDIRECT_URI);
+        if (object != null) redirectUri = (String)object;
+
+        object = mappedConfig.get(DENY_URI);
+        if (object != null) denyUri = (String)object;
+
+        object = mappedConfig.get(ENABLE_HTTP2);
+        if (object != null) enableHttp2 = Config.loadBooleanValue(ENABLE_HTTP2, object);
+
+        object = mappedConfig.get(AUTH_PATH);
+        if (object != null) authPath = (String)object;
+
+        object = mappedConfig.get(LOGOUT_PATH);
+        if (object != null) logoutPath = (String)object;
+
+        object = mappedConfig.get(COOKIE_DOMAIN);
+        if (object != null) cookieDomain = (String)object;
+
+        object = mappedConfig.get(COOKIE_PATH);
+        if (object != null) cookiePath = (String)object;
+
+        object = mappedConfig.get(COOKIE_TIMEOUT_URI);
+        if (object != null) cookieTimeoutUri = (String)object;
+
+        object = mappedConfig.get(COOKIE_SECURE);
+        if (object != null) cookieSecure = Config.loadBooleanValue(COOKIE_SECURE, object);
+
+        object = mappedConfig.get(SESSION_TIMEOUT);
+        if (object != null) sessionTimeout = Config.loadIntegerValue(SESSION_TIMEOUT, object);
+
+        object = mappedConfig.get(REMEMBER_ME_TIMEOUT);
+        if (object != null) rememberMeTimeout = Config.loadIntegerValue(REMEMBER_ME_TIMEOUT, object);
+
+        object = mappedConfig.get(BOOTSTRAP_TOKEN);
+        if (object != null) bootstrapToken = (String)object;
+
+        object = mappedConfig.get(GOOGLE_PATH);
+        if (object != null) googlePath = (String)object;
+
+        object = mappedConfig.get(GOOGLE_CLIENT_ID);
+        if (object != null) googleClientId = (String)object;
+
+        object = mappedConfig.get(GOOGLE_CLIENT_SECRET);
+        if (object != null) googleClientSecret = (String)object;
+
+        object = mappedConfig.get(GOOGLE_REDIRECT_URI);
+        if (object != null) googleRedirectUri = (String)object;
+
+        object = mappedConfig.get(FACEBOOK_PATH);
+        if (object != null) facebookPath = (String)object;
+
+        object = mappedConfig.get(FACEBOOK_CLIENT_ID);
+        if (object != null) facebookClientId = (String)object;
+
+        object = mappedConfig.get(FACEBOOK_CLIENT_SECRET);
+        if (object != null) facebookClientSecret = (String)object;
+
+        object = mappedConfig.get(GITHUB_PATH);
+        if (object != null) githubPath = (String)object;
+
+        object = mappedConfig.get(GITHUB_CLIENT_ID);
+        if (object != null) githubClientId = (String)object;
+
+        object = mappedConfig.get(GITHUB_CLIENT_SECRET);
+        if (object != null) githubClientSecret = (String)object;
+    }
+
+    // --- Getters and Setters (Original Methods) ---
 
     public boolean isEnabled() {
         return enabled;

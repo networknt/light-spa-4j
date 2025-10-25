@@ -1,0 +1,117 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "type" : "object",
+  "required" : [ "enabled", "redirectUri", "denyUri", "enableHttp2", "authPath", "logoutPath", "cookieDomain", "cookiePath", "cookieTimeoutUri", "cookieSecure", "sessionTimeout", "rememberMeTimeout", "bootstrapToken", "googlePath", "googleClientId", "googleClientSecret", "googleRedirectUri", "facebookPath", "facebookClientId", "facebookClientSecret", "githubPath", "githubClientId", "githubClientSecret" ],
+  "properties" : {
+    "enabled" : {
+      "type" : "boolean",
+      "description" : "Indicate if the StatelessAuthHandler is enabled or not"
+    },
+    "redirectUri" : {
+      "type" : "string",
+      "description" : "Once Authorization is done, which path the UI is redirected.",
+      "default" : "https://localhost:3000/#/app/dashboard"
+    },
+    "denyUri" : {
+      "type" : "string",
+      "description" : "An optional redirect uri if the user deny or cancel the authorization on the Consent page. Default to redirectUri if missing.",
+      "default" : "https://localhost:3000/#/app/dashboard"
+    },
+    "enableHttp2" : {
+      "type" : "boolean",
+      "description" : "If HTTP2 should be used for backend calls (e.g., to the OAuth provider)."
+    },
+    "authPath" : {
+      "type" : "string",
+      "description" : "Request path for the authorization code handling.",
+      "default" : "/authorization"
+    },
+    "logoutPath" : {
+      "type" : "string",
+      "description" : "Request path for the logout handling to remove HttpOnly access-token and other cookies.",
+      "default" : "/logout"
+    },
+    "cookieDomain" : {
+      "type" : "string",
+      "description" : "Cookie domain which is the original site.",
+      "default" : "localhost"
+    },
+    "cookiePath" : {
+      "type" : "string",
+      "description" : "Cookie path.",
+      "default" : "/"
+    },
+    "cookieTimeoutUri" : {
+      "type" : "string",
+      "description" : "Login uri, redirect to it once session is expired.",
+      "default" : "/"
+    },
+    "cookieSecure" : {
+      "type" : "boolean",
+      "description" : "If Cookie is secured."
+    },
+    "sessionTimeout" : {
+      "type" : "integer",
+      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n"
+    },
+    "rememberMeTimeout" : {
+      "type" : "integer",
+      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n"
+    },
+    "bootstrapToken" : {
+      "type" : "string",
+      "description" : "Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. \nAnd it is created with a special tool only available to customers.\n",
+      "default" : "token"
+    },
+    "googlePath" : {
+      "type" : "string",
+      "description" : "Google Auth Path.",
+      "default" : "/google"
+    },
+    "googleClientId" : {
+      "type" : "string",
+      "description" : "Google Client Id.",
+      "default" : "google_client_id"
+    },
+    "googleClientSecret" : {
+      "type" : "string",
+      "description" : "Google Client Secret that is retrieved from the environment variable",
+      "default" : "secret"
+    },
+    "googleRedirectUri" : {
+      "type" : "string",
+      "description" : "Google Redirect URI.",
+      "default" : "https://localhost:3000"
+    },
+    "facebookPath" : {
+      "type" : "string",
+      "description" : "Facebook Auth Path.",
+      "default" : "/facebook"
+    },
+    "facebookClientId" : {
+      "type" : "string",
+      "description" : "Facebook Client Id.",
+      "default" : "facebook_client_id"
+    },
+    "facebookClientSecret" : {
+      "type" : "string",
+      "description" : "Facebook Client Secret that is retrieved from the environment variable",
+      "default" : "secret"
+    },
+    "githubPath" : {
+      "type" : "string",
+      "description" : "GitHub Auth Path.",
+      "default" : "/github"
+    },
+    "githubClientId" : {
+      "type" : "string",
+      "description" : "GitHub Client Id.",
+      "default" : "github_client_id"
+    },
+    "githubClientSecret" : {
+      "type" : "string",
+      "description" : "GitHub Client Secret that is retrieved from the environment variable",
+      "default" : "secret"
+    }
+  }
+}

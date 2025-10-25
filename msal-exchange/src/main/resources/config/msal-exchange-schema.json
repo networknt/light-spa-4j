@@ -1,0 +1,43 @@
+{
+  "$schema" : "http://json-schema.org/draft-07/schema#",
+  "type" : "object",
+  "required" : [ "enabled", "exchangePath", "logoutPath", "cookieDomain", "cookiePath", "cookieSecure", "sessionTimeout", "rememberMeTimeout" ],
+  "properties" : {
+    "enabled" : {
+      "type" : "boolean",
+      "description" : "Indicates if the MSAL Exchange is enabled."
+    },
+    "exchangePath" : {
+      "type" : "string",
+      "description" : "The new path your React SPA will call with the Microsoft token.",
+      "default" : "/auth/ms/exchange"
+    },
+    "logoutPath" : {
+      "type" : "string",
+      "description" : "The logout path can remain the same.",
+      "default" : "/auth/ms/logout"
+    },
+    "cookieDomain" : {
+      "type" : "string",
+      "description" : "The domain to use for the session cookie.",
+      "default" : "localhost"
+    },
+    "cookiePath" : {
+      "type" : "string",
+      "description" : "The path to use for the session cookie.",
+      "default" : "/"
+    },
+    "cookieSecure" : {
+      "type" : "boolean",
+      "description" : "If the session cookie should be marked as secure (requires HTTPS)."
+    },
+    "sessionTimeout" : {
+      "type" : "integer",
+      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n"
+    },
+    "rememberMeTimeout" : {
+      "type" : "integer",
+      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n"
+    }
+  }
+}
