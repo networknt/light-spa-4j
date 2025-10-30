@@ -10,6 +10,7 @@ import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
+import com.networknt.security.VerificationException;
 import com.networknt.utility.Constants;
 import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.UuidUtil;
@@ -105,7 +106,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // The second provider will do its own validation and claim mapping.
                 // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
                 msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
-            } catch (InvalidJwtException e) {
+            } catch (InvalidJwtException | VerificationException e) {
                 logger.error("Microsoft token validation failed.", e);
                 setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
                 return;
