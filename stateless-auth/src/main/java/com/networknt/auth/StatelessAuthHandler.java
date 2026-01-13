@@ -102,8 +102,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public static StatelessAuthConfig config =
-            (StatelessAuthConfig)Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
+    public static StatelessAuthConfig config = StatelessAuthConfig.load();
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
     static {

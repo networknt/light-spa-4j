@@ -23,8 +23,6 @@ import io.undertow.server.handlers.CookieSameSiteMode;
 import io.undertow.util.Headers;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.consumer.ErrorCodeValidator;
-import org.jose4j.jwt.consumer.ErrorCodes;
 import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.jose4j.jwt.consumer.JwtContext;
 import org.slf4j.Logger;
@@ -52,8 +50,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public static MsalExchangeConfig config =
-            (MsalExchangeConfig)Config.getInstance().getJsonObjectConfig(MsalExchangeConfig.CONFIG_NAME, MsalExchangeConfig.class);
+    public static MsalExchangeConfig config = MsalExchangeConfig.load();
 
     // Two separate JwtVerifier instances ---
     static SecurityConfig securityConfig;
