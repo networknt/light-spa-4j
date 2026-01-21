@@ -62,7 +62,6 @@ public class StatelessAuthConfig {
             configFieldName = ENABLED,
             externalizedKeyName = ENABLED,
             description = "Indicate if the StatelessAuthHandler is enabled or not",
-            externalized = true,
             defaultValue = "true"
     )
     boolean enabled;
@@ -71,7 +70,6 @@ public class StatelessAuthConfig {
             configFieldName = REDIRECT_URI,
             externalizedKeyName = REDIRECT_URI,
             description = "Once Authorization is done, which path the UI is redirected.",
-            externalized = true,
             defaultValue = "https://localhost:3000/#/app/dashboard"
     )
     String redirectUri;
@@ -80,7 +78,6 @@ public class StatelessAuthConfig {
             configFieldName = DENY_URI,
             externalizedKeyName = DENY_URI,
             description = "An optional redirect uri if the user deny or cancel the authorization on the Consent page. Default to redirectUri if missing.",
-            externalized = true,
             defaultValue = "https://localhost:3000/#/app/dashboard"
     )
     String denyUri;
@@ -89,7 +86,6 @@ public class StatelessAuthConfig {
             configFieldName = ENABLE_HTTP2,
             externalizedKeyName = ENABLE_HTTP2,
             description = "If HTTP2 should be used for backend calls (e.g., to the OAuth provider).",
-            externalized = true,
             defaultValue = "false"
     )
     boolean enableHttp2;
@@ -98,7 +94,6 @@ public class StatelessAuthConfig {
             configFieldName = AUTH_PATH,
             externalizedKeyName = AUTH_PATH,
             description = "Request path for the authorization code handling.",
-            externalized = true,
             defaultValue = "/authorization"
     )
     String authPath;
@@ -107,7 +102,6 @@ public class StatelessAuthConfig {
             configFieldName = LOGOUT_PATH,
             externalizedKeyName = LOGOUT_PATH,
             description = "Request path for the logout handling to remove HttpOnly access-token and other cookies.",
-            externalized = true,
             defaultValue = "/logout"
     )
     String logoutPath;
@@ -116,7 +110,6 @@ public class StatelessAuthConfig {
             configFieldName = COOKIE_DOMAIN,
             externalizedKeyName = COOKIE_DOMAIN,
             description = "Cookie domain which is the original site.",
-            externalized = true,
             defaultValue = "localhost"
     )
     String cookieDomain;
@@ -125,7 +118,6 @@ public class StatelessAuthConfig {
             configFieldName = COOKIE_PATH,
             externalizedKeyName = COOKIE_PATH,
             description = "Cookie path.",
-            externalized = true,
             defaultValue = "/"
     )
     String cookiePath;
@@ -134,7 +126,6 @@ public class StatelessAuthConfig {
             configFieldName = COOKIE_TIMEOUT_URI,
             externalizedKeyName = COOKIE_TIMEOUT_URI,
             description = "Login uri, redirect to it once session is expired.",
-            externalized = true,
             defaultValue = "/"
     )
     String cookieTimeoutUri;
@@ -143,7 +134,6 @@ public class StatelessAuthConfig {
             configFieldName = COOKIE_SECURE,
             externalizedKeyName = COOKIE_SECURE,
             description = "If Cookie is secured.",
-            externalized = true,
             defaultValue = "true"
     )
     boolean cookieSecure;
@@ -153,7 +143,6 @@ public class StatelessAuthConfig {
             externalizedKeyName = SESSION_TIMEOUT,
             description = "Session timeout in seconds. This is the time after which the session will expire.\n" +
                     "Default is 3600 seconds (1 hour).\n",
-            externalized = true,
             defaultValue = "3600"
     )
     int sessionTimeout;
@@ -163,7 +152,6 @@ public class StatelessAuthConfig {
             externalizedKeyName = REMEMBER_ME_TIMEOUT,
             description = "Remember me timeout in seconds. This is the time after which the session will expire\n" +
                     "if rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
-            externalized = true,
             defaultValue = "604800"
     )
     int rememberMeTimeout;
@@ -173,7 +161,6 @@ public class StatelessAuthConfig {
             externalizedKeyName = BOOTSTRAP_TOKEN,
             description = "Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. \n" +
                     "And it is created with a special tool only available to customers.\n",
-            externalized = true,
             defaultValue = "token"
     )
     String bootstrapToken;
@@ -182,7 +169,6 @@ public class StatelessAuthConfig {
             configFieldName = GOOGLE_PATH,
             externalizedKeyName = GOOGLE_PATH,
             description = "Google Auth Path.",
-            externalized = true,
             defaultValue = "/google"
     )
     String googlePath;
@@ -191,7 +177,6 @@ public class StatelessAuthConfig {
             configFieldName = GOOGLE_CLIENT_ID,
             externalizedKeyName = GOOGLE_CLIENT_ID,
             description = "Google Client Id.",
-            externalized = true,
             defaultValue = "google_client_id"
     )
     String googleClientId;
@@ -200,7 +185,6 @@ public class StatelessAuthConfig {
             configFieldName = GOOGLE_CLIENT_SECRET,
             externalizedKeyName = GOOGLE_CLIENT_SECRET,
             description = "Google Client Secret that is retrieved from the environment variable",
-            externalized = true,
             defaultValue = "secret"
     )
     String googleClientSecret;
@@ -209,7 +193,6 @@ public class StatelessAuthConfig {
             configFieldName = GOOGLE_REDIRECT_URI,
             externalizedKeyName = GOOGLE_REDIRECT_URI,
             description = "Google Redirect URI.",
-            externalized = true,
             defaultValue = "https://localhost:3000"
     )
     String googleRedirectUri;
@@ -218,7 +201,6 @@ public class StatelessAuthConfig {
             configFieldName = FACEBOOK_PATH,
             externalizedKeyName = FACEBOOK_PATH,
             description = "Facebook Auth Path.",
-            externalized = true,
             defaultValue = "/facebook"
     )
     String facebookPath;
@@ -227,7 +209,6 @@ public class StatelessAuthConfig {
             configFieldName = FACEBOOK_CLIENT_ID,
             externalizedKeyName = FACEBOOK_CLIENT_ID,
             description = "Facebook Client Id.",
-            externalized = true,
             defaultValue = "facebook_client_id"
     )
     String facebookClientId;
@@ -236,7 +217,6 @@ public class StatelessAuthConfig {
             configFieldName = FACEBOOK_CLIENT_SECRET,
             externalizedKeyName = FACEBOOK_CLIENT_SECRET,
             description = "Facebook Client Secret that is retrieved from the environment variable",
-            externalized = true,
             defaultValue = "secret"
     )
     String facebookClientSecret;
@@ -245,7 +225,6 @@ public class StatelessAuthConfig {
             configFieldName = GITHUB_PATH,
             externalizedKeyName = GITHUB_PATH,
             description = "GitHub Auth Path.",
-            externalized = true,
             defaultValue = "/github"
     )
     String githubPath;
@@ -254,7 +233,6 @@ public class StatelessAuthConfig {
             configFieldName = GITHUB_CLIENT_ID,
             externalizedKeyName = GITHUB_CLIENT_ID,
             description = "GitHub Client Id.",
-            externalized = true,
             defaultValue = "github_client_id"
     )
     String githubClientId;
@@ -263,7 +241,6 @@ public class StatelessAuthConfig {
             configFieldName = GITHUB_CLIENT_SECRET,
             externalizedKeyName = GITHUB_CLIENT_SECRET,
             description = "GitHub Client Secret that is retrieved from the environment variable",
-            externalized = true,
             defaultValue = "secret"
     )
     String githubClientSecret;

@@ -37,7 +37,6 @@ public class MsalExchangeConfig {
             configFieldName = ENABLED,
             externalizedKeyName = ENABLED,
             description = "Indicates if the MSAL Exchange is enabled.",
-            externalized = true,
             defaultValue = "true"
     )
     boolean enabled;
@@ -46,7 +45,6 @@ public class MsalExchangeConfig {
             configFieldName = EXCHANGE_PATH,
             externalizedKeyName = EXCHANGE_PATH,
             description = "The new path your React SPA will call with the Microsoft token.",
-            externalized = true,
             defaultValue = "/auth/ms/exchange"
     )
     String exchangePath;
@@ -55,7 +53,6 @@ public class MsalExchangeConfig {
             configFieldName = LOGOUT_PATH,
             externalizedKeyName = LOGOUT_PATH,
             description = "The logout path can remain the same.",
-            externalized = true,
             defaultValue = "/auth/ms/logout"
     )
     String logoutPath;
@@ -64,7 +61,6 @@ public class MsalExchangeConfig {
             configFieldName = COOKIE_DOMAIN,
             externalizedKeyName = COOKIE_DOMAIN,
             description = "The domain to use for the session cookie.",
-            externalized = true,
             defaultValue = "localhost"
     )
     String cookieDomain;
@@ -73,7 +69,6 @@ public class MsalExchangeConfig {
             configFieldName = COOKIE_PATH,
             externalizedKeyName = COOKIE_PATH,
             description = "The path to use for the session cookie.",
-            externalized = true,
             defaultValue = "/"
     )
     String cookiePath;
@@ -82,7 +77,6 @@ public class MsalExchangeConfig {
             configFieldName = COOKIE_SECURE,
             externalizedKeyName = COOKIE_SECURE,
             description = "If the session cookie should be marked as secure (requires HTTPS).",
-            externalized = true,
             defaultValue = "false"
     )
     boolean cookieSecure;
@@ -92,7 +86,6 @@ public class MsalExchangeConfig {
             externalizedKeyName = SESSION_TIMEOUT,
             description = "Session timeout in seconds. This is the time after which the session will expire.\n" +
                     "Default is 3600 seconds (1 hour).\n",
-            externalized = true,
             defaultValue = "3600"
     )
     int sessionTimeout;
@@ -102,7 +95,6 @@ public class MsalExchangeConfig {
             externalizedKeyName = REMEMBER_ME_TIMEOUT,
             description = "Remember me timeout in seconds. This is the time after which the session will expire\n" +
                     "if rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
-            externalized = true,
             defaultValue = "604800"
     )
     int rememberMeTimeout;
