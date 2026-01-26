@@ -28,7 +28,7 @@ import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
-import com.networknt.utility.ModuleRegistry;
+import com.networknt.utility.Constants;
 import com.networknt.utility.Util;
 import com.networknt.utility.UuidUtil;
 import io.undertow.Handlers;
@@ -102,7 +102,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public static StatelessAuthConfig config = StatelessAuthConfig.load();
+    public StatelessAuthConfig config;
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
     static {
@@ -113,6 +113,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private volatile HttpHandler next;
 
     public StatelessAuthHandler() {
+        config = StatelessAuthConfig.load();
         logger.info("StatelessAuthHandler is constructed.");
     }
 
@@ -466,6 +467,5 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     @Override
     public void register() {
-        ModuleRegistry.registerModule(StatelessAuthConfig.CONFIG_NAME, StatelessAuthHandler.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(StatelessAuthConfig.CONFIG_NAME), null);
     }
 }

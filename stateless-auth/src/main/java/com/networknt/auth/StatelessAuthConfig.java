@@ -9,7 +9,9 @@ import com.networknt.config.schema.StringField;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.networknt.server.ModuleRegistry;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Config class for StatelessAuthHandler.
@@ -55,6 +57,7 @@ public class StatelessAuthConfig {
 
     private final Config config;
     private Map<String, Object> mappedConfig;
+    private static final Map<String, StatelessAuthConfig> instances = new ConcurrentHashMap<>();
 
     // --- Annotated Fields ---
 
@@ -248,7 +251,7 @@ public class StatelessAuthConfig {
 
     // --- Constructor and Loading Logic ---
 
-    private StatelessAuthConfig() {
+    public StatelessAuthConfig() {
         this(CONFIG_NAME);
     }
 
@@ -259,16 +262,40 @@ public class StatelessAuthConfig {
     }
 
     public static StatelessAuthConfig load() {
-        return new StatelessAuthConfig();
+        return load(CONFIG_NAME);
     }
 
     public static StatelessAuthConfig load(String configName) {
-        return new StatelessAuthConfig(configName);
+        StatelessAuthConfig instance = instances.get(configName);
+        if (instance != null) {
+            return instance;
+        }
+        synchronized (StatelessAuthConfig.class) {
+            instance = instances.get(configName);
+            if (instance != null) {
+                return instance;
+            }
+            instance = new StatelessAuthConfig(configName);
+            instances.put(configName, instance);
+            if (CONFIG_NAME.equals(configName)) {
+                ModuleRegistry.registerModule(CONFIG_NAME, StatelessAuthConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+            }
+            return instance;
+        }
     }
 
-    public void reload() {
-        mappedConfig = config.getJsonMapConfigNoCache(CONFIG_NAME);
-        setConfigData();
+    public static void reload() {
+        reload(CONFIG_NAME);
+    }
+
+    public static void reload(String configName) {
+        synchronized (StatelessAuthConfig.class) {
+            StatelessAuthConfig instance = new StatelessAuthConfig(configName);
+            instances.put(configName, instance);
+            if (CONFIG_NAME.equals(configName)) {
+                ModuleRegistry.registerModule(CONFIG_NAME, StatelessAuthConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+            }
+        }
     }
 
     // --- Private Config Loader ---

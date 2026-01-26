@@ -7,7 +7,9 @@ import com.networknt.config.schema.BooleanField; // REQUIRED IMPORT
 import com.networknt.config.schema.IntegerField; // REQUIRED IMPORT
 import com.networknt.config.schema.StringField; // REQUIRED IMPORT
 
+import com.networknt.server.ModuleRegistry;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 // <<< REQUIRED ANNOTATION FOR SCHEMA GENERATION >>>
 @ConfigSchema(
@@ -30,8 +32,10 @@ public class MsalExchangeConfig {
     private static final String REMEMBER_ME_TIMEOUT = "rememberMeTimeout";
 
     // --- Annotated Fields ---
+    // --- Annotated Fields ---
     private final Config config;
     private Map<String, Object> mappedConfig;
+    private static final Map<String, MsalExchangeConfig> instances = new ConcurrentHashMap<>();
 
     @BooleanField(
             configFieldName = ENABLED,
@@ -112,16 +116,40 @@ public class MsalExchangeConfig {
     }
 
     public static MsalExchangeConfig load() {
-        return new MsalExchangeConfig();
+        return load(CONFIG_NAME);
     }
 
     public static MsalExchangeConfig load(String configName) {
-        return new MsalExchangeConfig(configName);
+        MsalExchangeConfig instance = instances.get(configName);
+        if (instance != null) {
+            return instance;
+        }
+        synchronized (MsalExchangeConfig.class) {
+            instance = instances.get(configName);
+            if (instance != null) {
+                return instance;
+            }
+            instance = new MsalExchangeConfig(configName);
+            instances.put(configName, instance);
+            if (CONFIG_NAME.equals(configName)) {
+                ModuleRegistry.registerModule(CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+            }
+            return instance;
+        }
     }
 
-    public void reload() {
-        mappedConfig = config.getJsonMapConfigNoCache(CONFIG_NAME);
-        setConfigData();
+    public static void reload() {
+        reload(CONFIG_NAME);
+    }
+
+    public static void reload(String configName) {
+        synchronized (MsalExchangeConfig.class) {
+            MsalExchangeConfig instance = new MsalExchangeConfig(configName);
+            instances.put(configName, instance);
+            if (CONFIG_NAME.equals(configName)) {
+                ModuleRegistry.registerModule(CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+            }
+        }
     }
 
     private void setConfigData() {

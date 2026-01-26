@@ -12,7 +12,6 @@ import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
 import com.networknt.security.VerificationException;
 import com.networknt.utility.Constants;
-import com.networknt.utility.ModuleRegistry;
 import com.networknt.utility.UuidUtil;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
@@ -50,7 +49,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public static MsalExchangeConfig config = MsalExchangeConfig.load();
+    public MsalExchangeConfig config;
 
     // Two separate JwtVerifier instances ---
     static SecurityConfig securityConfig;
@@ -76,6 +75,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private volatile HttpHandler next;
 
     public MsalTokenExchangeHandler() {
+        config = MsalExchangeConfig.load();
         logger.info("MsalTokenExchangeHandler is constructed.");
     }
 
@@ -440,6 +440,5 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
     @Override
     public void register() {
-        ModuleRegistry.registerModule(MsalExchangeConfig.CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(MsalExchangeConfig.CONFIG_NAME), null);
     }
 }
