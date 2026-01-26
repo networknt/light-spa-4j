@@ -460,12 +460,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         return this;
     }
 
+    public void register() {
+    }
+
     @Override
     public boolean isEnabled() {
         return config.isEnabled();
     }
 
-    @Override
-    public void register() {
-    }
 }

@@ -11,7 +11,6 @@ import org.slf4j.LoggerFactory;
 
 import com.networknt.server.ModuleRegistry;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Config class for StatelessAuthHandler.
@@ -55,9 +54,8 @@ public class StatelessAuthConfig {
     private static final String GITHUB_CLIENT_ID = "githubClientId";
     private static final String GITHUB_CLIENT_SECRET = "githubClientSecret";
 
-    private final Config config;
-    private Map<String, Object> mappedConfig;
-    private static final Map<String, StatelessAuthConfig> instances = new ConcurrentHashMap<>();
+    private final Map<String, Object> mappedConfig;
+    private static StatelessAuthConfig instance;
 
     // --- Annotated Fields ---
 
@@ -256,8 +254,7 @@ public class StatelessAuthConfig {
     }
 
     private StatelessAuthConfig(String configName) {
-        config = Config.getInstance();
-        mappedConfig = config.getJsonMapConfigNoCache(configName);
+        mappedConfig = Config.getInstance().getJsonMapConfig(configName);
         setConfigData();
     }
 
@@ -266,37 +263,25 @@ public class StatelessAuthConfig {
     }
 
     public static StatelessAuthConfig load(String configName) {
-        StatelessAuthConfig instance = instances.get(configName);
-        if (instance != null) {
-            return instance;
-        }
-        synchronized (StatelessAuthConfig.class) {
-            instance = instances.get(configName);
-            if (instance != null) {
+        if (CONFIG_NAME.equals(configName)) {
+            Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            if (instance != null && instance.getMappedConfig() == mappedConfig) {
                 return instance;
             }
-            instance = new StatelessAuthConfig(configName);
-            instances.put(configName, instance);
-            if (CONFIG_NAME.equals(configName)) {
+            synchronized (StatelessAuthConfig.class) {
+                mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+                if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                    return instance;
+                }
+                instance = new StatelessAuthConfig(configName);
                 ModuleRegistry.registerModule(CONFIG_NAME, StatelessAuthConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
-            }
-            return instance;
-        }
-    }
-
-    public static void reload() {
-        reload(CONFIG_NAME);
-    }
-
-    public static void reload(String configName) {
-        synchronized (StatelessAuthConfig.class) {
-            StatelessAuthConfig instance = new StatelessAuthConfig(configName);
-            instances.put(configName, instance);
-            if (CONFIG_NAME.equals(configName)) {
-                ModuleRegistry.registerModule(CONFIG_NAME, StatelessAuthConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+                return instance;
             }
         }
+        return new StatelessAuthConfig(configName);
     }
+
+
 
     // --- Private Config Loader ---
     private void setConfigData() {
@@ -368,6 +353,10 @@ public class StatelessAuthConfig {
 
         object = mappedConfig.get(GITHUB_CLIENT_SECRET);
         if (object != null) githubClientSecret = (String)object;
+    }
+
+    public Map<String, Object> getMappedConfig() {
+        return mappedConfig;
     }
 
     // --- Getters and Setters (Original Methods) ---

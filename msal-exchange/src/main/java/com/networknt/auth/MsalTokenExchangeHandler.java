@@ -438,7 +438,4 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         return config.isEnabled();
     }
 
-    @Override
-    public void register() {
-    }
 }

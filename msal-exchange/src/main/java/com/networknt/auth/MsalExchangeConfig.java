@@ -9,7 +9,6 @@ import com.networknt.config.schema.StringField; // REQUIRED IMPORT
 
 import com.networknt.server.ModuleRegistry;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 // <<< REQUIRED ANNOTATION FOR SCHEMA GENERATION >>>
 @ConfigSchema(
@@ -33,9 +32,8 @@ public class MsalExchangeConfig {
 
     // --- Annotated Fields ---
     // --- Annotated Fields ---
-    private final Config config;
-    private Map<String, Object> mappedConfig;
-    private static final Map<String, MsalExchangeConfig> instances = new ConcurrentHashMap<>();
+    private final Map<String, Object> mappedConfig;
+    private static MsalExchangeConfig instance;
 
     @BooleanField(
             configFieldName = ENABLED,
@@ -110,8 +108,7 @@ public class MsalExchangeConfig {
     }
 
     private MsalExchangeConfig(String configName) {
-        config = Config.getInstance();
-        mappedConfig = config.getJsonMapConfigNoCache(configName);
+        mappedConfig = Config.getInstance().getJsonMapConfig(configName);
         setConfigData();
     }
 
@@ -120,37 +117,25 @@ public class MsalExchangeConfig {
     }
 
     public static MsalExchangeConfig load(String configName) {
-        MsalExchangeConfig instance = instances.get(configName);
-        if (instance != null) {
-            return instance;
-        }
-        synchronized (MsalExchangeConfig.class) {
-            instance = instances.get(configName);
-            if (instance != null) {
+        if (CONFIG_NAME.equals(configName)) {
+            Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            if (instance != null && instance.getMappedConfig() == mappedConfig) {
                 return instance;
             }
-            instance = new MsalExchangeConfig(configName);
-            instances.put(configName, instance);
-            if (CONFIG_NAME.equals(configName)) {
+            synchronized (MsalExchangeConfig.class) {
+                mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+                if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                    return instance;
+                }
+                instance = new MsalExchangeConfig(configName);
                 ModuleRegistry.registerModule(CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
-            }
-            return instance;
-        }
-    }
-
-    public static void reload() {
-        reload(CONFIG_NAME);
-    }
-
-    public static void reload(String configName) {
-        synchronized (MsalExchangeConfig.class) {
-            MsalExchangeConfig instance = new MsalExchangeConfig(configName);
-            instances.put(configName, instance);
-            if (CONFIG_NAME.equals(configName)) {
-                ModuleRegistry.registerModule(CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+                return instance;
             }
         }
+        return new MsalExchangeConfig(configName);
     }
+
+
 
     private void setConfigData() {
         // Load fields using Config utilities, consistent with the framework's internal loading
@@ -177,6 +162,10 @@ public class MsalExchangeConfig {
 
         object = mappedConfig.get(REMEMBER_ME_TIMEOUT);
         if (object != null) rememberMeTimeout = Config.loadIntegerValue(REMEMBER_ME_TIMEOUT, object);
+    }
+
+    public Map<String, Object> getMappedConfig() {
+        return mappedConfig;
     }
 
     // --- Getters and Setters (Original Methods) ---
