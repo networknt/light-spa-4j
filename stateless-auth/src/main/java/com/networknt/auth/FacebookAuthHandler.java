@@ -32,11 +32,9 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
     private static final String EMAIL_REGISTERED = "ERR11350";
 
-    public static StatelessAuthConfig config =
-            (StatelessAuthConfig) Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
-
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
+        StatelessAuthConfig config = StatelessAuthConfig.load();
         // This handler only cares about /google path. Pass to the next handler if path is not matched.
         if(exchange.getRelativePath().equals(config.getFacebookPath())) {
             Deque<String> deque = exchange.getQueryParameters().get(ACCESS_TOKEN);
@@ -86,7 +84,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                     logger.error(status.toString());
                     return;
                 }
-                List scopes = setCookies(exchange, result.getResult(), csrf);
+                List scopes = setCookies(exchange, result.getResult(), csrf, config);
                 if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
                     exchange.setStatusCode(StatusCodes.OK);
                     Map<String, Object> rs = new HashMap<>();

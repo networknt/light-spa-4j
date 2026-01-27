@@ -6,8 +6,6 @@ import com.networknt.config.schema.OutputFormat;
 import com.networknt.config.schema.BooleanField;
 import com.networknt.config.schema.IntegerField;
 import com.networknt.config.schema.StringField;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import com.networknt.server.ModuleRegistry;
 import java.util.Map;

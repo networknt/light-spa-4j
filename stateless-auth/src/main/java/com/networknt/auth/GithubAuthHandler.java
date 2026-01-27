@@ -14,12 +14,11 @@ public class GithubAuthHandler extends StatelessAuthHandler implements Middlewar
     private static final Logger logger = LoggerFactory.getLogger(GithubAuthHandler.class);
     private static final String CODE = "code";
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
-    public static StatelessAuthConfig config =
-            (StatelessAuthConfig) Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /google path. Pass to the next handler if path is not matched.
+        StatelessAuthConfig config = StatelessAuthConfig.load();
         if (exchange.getRelativePath().equals(config.getGithubPath())) {
             Deque<String> deque = exchange.getQueryParameters().get(CODE);
             String code = deque == null ? null : deque.getFirst();

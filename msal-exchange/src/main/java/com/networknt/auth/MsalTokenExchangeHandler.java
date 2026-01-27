@@ -49,7 +49,6 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public MsalExchangeConfig config;
 
     // Two separate JwtVerifier instances ---
     static SecurityConfig securityConfig;
@@ -75,12 +74,13 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private volatile HttpHandler next;
 
     public MsalTokenExchangeHandler() {
-        config = MsalExchangeConfig.load();
+        MsalExchangeConfig.load();
         logger.info("MsalTokenExchangeHandler is constructed.");
     }
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
+        MsalExchangeConfig config = MsalExchangeConfig.load();
         String reqPath = exchange.getRequestPath();
         if (exchange.getRelativePath().equals(config.getExchangePath())) {
             // token exchange request handling.
@@ -124,7 +124,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             }
 
             // --- The setCookies logic is identical ---
-            List<String> scopes = setCookies(exchange, result.getResult(), csrf);
+            List<String> scopes = setCookies(exchange, result.getResult(), csrf, config);
             if(logger.isTraceEnabled()) logger.trace("scopes = {}", scopes);
 
             exchange.setStatusCode(StatusCodes.OK);
@@ -136,7 +136,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
             // logout request handling, this is the same as StatelessAuthHandler to remove the cookies.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler logout is called.");
-            removeCookies(exchange);
+            removeCookies(exchange, config);
             exchange.endExchange();
         } else {
             // This is the subsequent request handling after the token exchange. Here we verify the JWT in the cookies.
@@ -168,11 +168,11 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
                 // per minute will make the session continue until the browser tab is closed.
                 if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
-                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
+                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
                 }
             } else {
                 // renew the token and set the cookies
-                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
+                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
             if(logger.isTraceEnabled()) logger.trace("jwt = " + jwt);
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
@@ -186,7 +186,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     }
 
     // --- The following methods can be copied directly or moved to a shared utility class ---
-    private String renewToken(HttpServerExchange exchange, Cookie cookie) throws Exception {
+    private String renewToken(HttpServerExchange exchange, Cookie cookie, MsalExchangeConfig config) throws Exception {
         String jwt = null;
         if(cookie != null) {
             String refreshToken = cookie.getValue();
@@ -198,12 +198,12 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResult();
-                    setCookies(exchange, response, csrf);
+                    setCookies(exchange, response, csrf, config);
                     jwt = response.getAccessToken();
                 } else {
                     if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
                     // remove the cookies to log out the user
-                    removeCookies(exchange);
+                    removeCookies(exchange, config);
                     exchange.endExchange();
                 }
             }
@@ -211,7 +211,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         return jwt;
     }
 
-    private void removeCookies(final HttpServerExchange exchange) {
+    private void removeCookies(final HttpServerExchange exchange, MsalExchangeConfig config) {
         // first get the cookie from the request.
         Cookie accessTokenCookie = exchange.getRequestCookie(ACCESS_TOKEN);
         if(accessTokenCookie != null) {
@@ -307,7 +307,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         }
     }
 
-    protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
+    protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, MsalExchangeConfig config) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
         String remember = response.getRemember();
@@ -435,7 +435,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
     @Override
     public boolean isEnabled() {
-        return config.isEnabled();
+        return MsalExchangeConfig.load().isEnabled();
     }
 
 }
