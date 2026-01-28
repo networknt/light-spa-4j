@@ -24,19 +24,17 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
     private static final String EMAIL_REGISTERED = "ERR11350";
 
-    public static StatelessAuthConfig config =
-            (StatelessAuthConfig) Config.getInstance().getJsonObjectConfig(StatelessAuthConfig.CONFIG_NAME, StatelessAuthConfig.class);
-
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /google path. Pass to the next handler if path is not matched.
+        StatelessAuthConfig config = StatelessAuthConfig.load();
         if (logger.isDebugEnabled())
-            logger.debug("exchange path = " + exchange.getRelativePath() + " config path = " + config.getGooglePath());
+            logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getGooglePath());
         if(exchange.getRelativePath().equals(config.getGooglePath())) {
             Deque<String> deque = exchange.getQueryParameters().get(CODE);
             String code = deque == null ? null : deque.getFirst();
-            if (logger.isDebugEnabled()) logger.debug("auth code = " + code);
+            if (logger.isDebugEnabled()) logger.debug("auth code = {}", code);
             // check if code is in the query parameter
             if (code == null || code.trim().length() == 0) {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
@@ -93,7 +91,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
                 logger.error(status.toString());
                 return;
             }
-            List scopes = setCookies(exchange, result.getResult(), csrf);
+            List scopes = setCookies(exchange, result.getResult(), csrf, config);
             if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
                 exchange.setStatusCode(StatusCodes.OK);
                 Map<String, Object> rs = new HashMap<>();

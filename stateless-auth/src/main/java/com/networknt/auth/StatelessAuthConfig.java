@@ -6,9 +6,8 @@ import com.networknt.config.schema.OutputFormat;
 import com.networknt.config.schema.BooleanField;
 import com.networknt.config.schema.IntegerField;
 import com.networknt.config.schema.StringField;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
+import com.networknt.server.ModuleRegistry;
 import java.util.Map;
 
 /**
@@ -53,8 +52,8 @@ public class StatelessAuthConfig {
     private static final String GITHUB_CLIENT_ID = "githubClientId";
     private static final String GITHUB_CLIENT_SECRET = "githubClientSecret";
 
-    private final Config config;
-    private Map<String, Object> mappedConfig;
+    private final Map<String, Object> mappedConfig;
+    private static volatile StatelessAuthConfig instance;
 
     // --- Annotated Fields ---
 
@@ -248,28 +247,39 @@ public class StatelessAuthConfig {
 
     // --- Constructor and Loading Logic ---
 
-    private StatelessAuthConfig() {
+    public StatelessAuthConfig() {
         this(CONFIG_NAME);
     }
 
     private StatelessAuthConfig(String configName) {
-        config = Config.getInstance();
-        mappedConfig = config.getJsonMapConfigNoCache(configName);
+        mappedConfig = Config.getInstance().getJsonMapConfig(configName);
         setConfigData();
     }
 
     public static StatelessAuthConfig load() {
-        return new StatelessAuthConfig();
+        return load(CONFIG_NAME);
     }
 
     public static StatelessAuthConfig load(String configName) {
+        if (CONFIG_NAME.equals(configName)) {
+            Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                return instance;
+            }
+            synchronized (StatelessAuthConfig.class) {
+                mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+                if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                    return instance;
+                }
+                instance = new StatelessAuthConfig(configName);
+                ModuleRegistry.registerModule(CONFIG_NAME, StatelessAuthConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+                return instance;
+            }
+        }
         return new StatelessAuthConfig(configName);
     }
 
-    public void reload() {
-        mappedConfig = config.getJsonMapConfigNoCache(CONFIG_NAME);
-        setConfigData();
-    }
+
 
     // --- Private Config Loader ---
     private void setConfigData() {
@@ -341,6 +351,10 @@ public class StatelessAuthConfig {
 
         object = mappedConfig.get(GITHUB_CLIENT_SECRET);
         if (object != null) githubClientSecret = (String)object;
+    }
+
+    public Map<String, Object> getMappedConfig() {
+        return mappedConfig;
     }
 
     // --- Getters and Setters (Original Methods) ---

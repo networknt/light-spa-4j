@@ -7,6 +7,7 @@ import com.networknt.config.schema.BooleanField; // REQUIRED IMPORT
 import com.networknt.config.schema.IntegerField; // REQUIRED IMPORT
 import com.networknt.config.schema.StringField; // REQUIRED IMPORT
 
+import com.networknt.server.ModuleRegistry;
 import java.util.Map;
 
 // <<< REQUIRED ANNOTATION FOR SCHEMA GENERATION >>>
@@ -30,8 +31,9 @@ public class MsalExchangeConfig {
     private static final String REMEMBER_ME_TIMEOUT = "rememberMeTimeout";
 
     // --- Annotated Fields ---
-    private final Config config;
-    private Map<String, Object> mappedConfig;
+    // --- Annotated Fields ---
+    private final Map<String, Object> mappedConfig;
+    private static volatile MsalExchangeConfig instance;
 
     @BooleanField(
             configFieldName = ENABLED,
@@ -106,23 +108,34 @@ public class MsalExchangeConfig {
     }
 
     private MsalExchangeConfig(String configName) {
-        config = Config.getInstance();
-        mappedConfig = config.getJsonMapConfigNoCache(configName);
+        mappedConfig = Config.getInstance().getJsonMapConfig(configName);
         setConfigData();
     }
 
     public static MsalExchangeConfig load() {
-        return new MsalExchangeConfig();
+        return load(CONFIG_NAME);
     }
 
     public static MsalExchangeConfig load(String configName) {
+        if (CONFIG_NAME.equals(configName)) {
+            Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                return instance;
+            }
+            synchronized (MsalExchangeConfig.class) {
+                mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+                if (instance != null && instance.getMappedConfig() == mappedConfig) {
+                    return instance;
+                }
+                instance = new MsalExchangeConfig(configName);
+                ModuleRegistry.registerModule(CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+                return instance;
+            }
+        }
         return new MsalExchangeConfig(configName);
     }
 
-    public void reload() {
-        mappedConfig = config.getJsonMapConfigNoCache(CONFIG_NAME);
-        setConfigData();
-    }
+
 
     private void setConfigData() {
         // Load fields using Config utilities, consistent with the framework's internal loading
@@ -149,6 +162,10 @@ public class MsalExchangeConfig {
 
         object = mappedConfig.get(REMEMBER_ME_TIMEOUT);
         if (object != null) rememberMeTimeout = Config.loadIntegerValue(REMEMBER_ME_TIMEOUT, object);
+    }
+
+    public Map<String, Object> getMappedConfig() {
+        return mappedConfig;
     }
 
     // --- Getters and Setters (Original Methods) ---

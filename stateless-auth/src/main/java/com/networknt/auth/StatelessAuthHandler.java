@@ -17,8 +17,6 @@
 package com.networknt.auth;
 
 import com.networknt.client.oauth.*;
-import com.networknt.config.Config;
-import com.networknt.config.ConfigException;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
@@ -28,8 +26,6 @@ import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
-import com.networknt.utility.ModuleRegistry;
-import com.networknt.utility.Util;
 import com.networknt.utility.UuidUtil;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
@@ -102,7 +98,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
 
-    public static StatelessAuthConfig config = StatelessAuthConfig.load();
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
     static {
@@ -113,12 +108,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private volatile HttpHandler next;
 
     public StatelessAuthHandler() {
+        StatelessAuthConfig.load();
         logger.info("StatelessAuthHandler is constructed.");
     }
 
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /authorization path. Pass to the next handler if path is not matched.
+        StatelessAuthConfig config = StatelessAuthConfig.load();
         if(logger.isDebugEnabled())
             logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getAuthPath());
 
@@ -146,7 +143,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 logger.error(status.toString());
                 return;
             }
-            List scopes = setCookies(exchange, result.getResult(), csrf);
+            List scopes = setCookies(exchange, result.getResult(), csrf, config);
             if(logger.isDebugEnabled()) logger.debug("scopes = {}", scopes);
             if (config.getRedirectUri() != null && !config.getRedirectUri().isEmpty()) {
                 exchange.setStatusCode(StatusCodes.OK);
@@ -162,7 +159,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             }
             return;
         } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
-            removeCookies(exchange);
+            removeCookies(exchange, config);
             exchange.endExchange();
             return;
         } else {
@@ -194,11 +191,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
                 // per minute will make the session continue until the browser tab is closed.
                 if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
-                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
+                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
                 }
             } else {
                 // renew the token and set the cookies
-                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN));
+                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
 
             if(logger.isDebugEnabled()) logger.debug("jwt = {}", jwt);
@@ -212,7 +209,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
     }
 
-    private String renewToken(HttpServerExchange exchange, Cookie cookie) throws Exception {
+    private String renewToken(HttpServerExchange exchange, Cookie cookie, StatelessAuthConfig config) throws Exception {
         String jwt = null;
         if(cookie != null) {
             String refreshToken = cookie.getValue();
@@ -224,12 +221,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResult();
-                    setCookies(exchange, response, csrf);
+                    setCookies(exchange, response, csrf, config);
                     jwt = response.getAccessToken();
                 } else {
                     if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
                     // remove the cookies to log out the user
-                    removeCookies(exchange);
+                    removeCookies(exchange, config);
                     exchange.endExchange();
                 }
             }
@@ -237,7 +234,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         return jwt;
     }
 
-    private void removeCookies(final HttpServerExchange exchange) {
+    private void removeCookies(final HttpServerExchange exchange, StatelessAuthConfig config) {
         // first get the cookie from the request.
         Cookie accessTokenCookie = exchange.getRequestCookie(ACCESS_TOKEN);
         if(accessTokenCookie != null) {
@@ -334,7 +331,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     }
 
-    protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf) throws Exception {
+    protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, StatelessAuthConfig config) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
         String remember = response.getRemember();
@@ -461,11 +458,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
     @Override
     public boolean isEnabled() {
-        return config.isEnabled();
+        return StatelessAuthConfig.load().isEnabled();
     }
 
-    @Override
-    public void register() {
-        ModuleRegistry.registerModule(StatelessAuthConfig.CONFIG_NAME, StatelessAuthHandler.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(StatelessAuthConfig.CONFIG_NAME), null);
-    }
 }
