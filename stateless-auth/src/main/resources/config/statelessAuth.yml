@@ -3,7 +3,7 @@
 # token is then sent to the browser with two cookies with splitting header/payload and signature.
 # Another options is to keep the jwt in session and return sessionId to the browser. In either
 # case, the csrf token will be send with a separate cookie.
-# 
+#
 # Indicate if the StatelessAuthHandler is enabled or not
 enabled: ${statelessAuth.enabled:true}
 # Once Authorization is done, which path the UI is redirected.
@@ -30,7 +30,7 @@ sessionTimeout: ${statelessAuth.sessionTimeout:3600}
 # Remember me timeout in seconds. This is the time after which the session will expire
 # if rememberMe is set true during login. Default is 604800 seconds (7 days).
 rememberMeTimeout: ${statelessAuth.rememberMeTimeout:604800}
-# Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info. 
+# Bootstrap token used by oauth-kafka to call light-portal services. This is a client credentials token without user info.
 # And it is created with a special tool only available to customers.
 bootstrapToken: ${statelessAuth.bootstrapToken:token}
 # Google Auth Path.
