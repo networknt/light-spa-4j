@@ -17,8 +17,6 @@
 package com.networknt.auth;
 
 import com.networknt.client.oauth.*;
-import com.networknt.config.Config;
-import com.networknt.config.ConfigException;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
@@ -28,8 +26,6 @@ import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
-import com.networknt.utility.Constants;
-import com.networknt.utility.Util;
 import com.networknt.utility.UuidUtil;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
@@ -458,9 +454,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         Handlers.handlerNotNull(next);
         this.next = next;
         return this;
-    }
-
-    public void register() {
     }
 
     @Override

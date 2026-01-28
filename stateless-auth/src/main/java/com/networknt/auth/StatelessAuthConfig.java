@@ -53,7 +53,7 @@ public class StatelessAuthConfig {
     private static final String GITHUB_CLIENT_SECRET = "githubClientSecret";
 
     private final Map<String, Object> mappedConfig;
-    private static StatelessAuthConfig instance;
+    private static volatile StatelessAuthConfig instance;
 
     // --- Annotated Fields ---
 

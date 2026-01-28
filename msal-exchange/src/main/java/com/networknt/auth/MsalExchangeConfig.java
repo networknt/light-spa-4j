@@ -33,7 +33,7 @@ public class MsalExchangeConfig {
     // --- Annotated Fields ---
     // --- Annotated Fields ---
     private final Map<String, Object> mappedConfig;
-    private static MsalExchangeConfig instance;
+    private static volatile MsalExchangeConfig instance;
 
     @BooleanField(
             configFieldName = ENABLED,
