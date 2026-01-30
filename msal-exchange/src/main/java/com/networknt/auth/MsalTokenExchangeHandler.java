@@ -27,6 +27,8 @@ import org.jose4j.jwt.consumer.JwtContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -374,7 +376,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure));
         }
         if(roles != null) {
-            exchange.setResponseCookie(new CookieImpl(Constants.ROLES, roles)
+            exchange.setResponseCookie(new CookieImpl(Constants.ROLES, Base64.getEncoder().encodeToString(roles.getBytes(StandardCharsets.UTF_8)))
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)

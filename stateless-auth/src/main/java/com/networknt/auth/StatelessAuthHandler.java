@@ -40,6 +40,7 @@ import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
@@ -397,7 +398,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     .setSecure(config.cookieSecure));
         }
         if(roles != null) {
-            exchange.setResponseCookie(new CookieImpl(Constants.ROLES, roles)
+            exchange.setResponseCookie(new CookieImpl(Constants.ROLES, Base64.getEncoder().encodeToString(roles.getBytes(StandardCharsets.UTF_8)))
                     .setDomain(config.cookieDomain)
                     .setPath(config.cookiePath)
                     .setMaxAge(expiresIn)

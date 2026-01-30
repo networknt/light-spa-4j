@@ -185,6 +185,20 @@ public class StatelessAuthHandlerTest {
         }
         int statusCode = reference.get().getResponseCode();
         Assertions.assertEquals(StatusCodes.OK, statusCode);
+        List<String> values = reference.get().getResponseHeaders().get(Headers.SET_COOKIE);
+        boolean rolesCookieFound = false;
+        for(String s: values) {
+            if(s.contains("roles=")) {
+                rolesCookieFound = true;
+                // extract value and decode
+                int start = s.indexOf("roles=");
+                int end = s.indexOf(";", start);
+                String value = s.substring(start + 6, end);
+                String decoded = new String(java.util.Base64.getDecoder().decode(value), java.nio.charset.StandardCharsets.UTF_8);
+                Assertions.assertEquals("user admin", decoded);
+            }
+        }
+        Assertions.assertTrue(rolesCookieFound);
     }
 
     @Test
@@ -236,6 +250,7 @@ public class StatelessAuthHandlerTest {
         claims.setClaim("user_id", "steve");
         claims.setClaim("user_type", "EMPLOYEE");
         claims.setClaim("client_id", "aaaaaaaa-1234-1234-1234-bbbbbbbb");
+        claims.setClaim("role", "user admin"); // set multiple roles separated by space
         if(csrfToken != null) claims.setClaim("csrf", csrfToken);
         List<String> scope = Arrays.asList("api.r", "api.w");
         claims.setStringListClaim("scope", scope); // multi-valued claims work too and will end up as a JSON array
