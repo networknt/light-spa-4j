@@ -83,6 +83,7 @@ import java.util.*;
 public class StatelessAuthHandler implements MiddlewareHandler {
     private static final Logger logger = LoggerFactory.getLogger(StatelessAuthHandler.class);
     private static final String CODE = "code";
+    private static final String STATE = "state";
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
     private static final String JWT_NOT_FOUND_IN_COOKIES = "ERR10040";
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
@@ -122,9 +123,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
 
         if(exchange.getRelativePath().equals(config.getAuthPath())) {
             // first time authentication and return both access and refresh tokens in cookies
-            Deque<String> deque = exchange.getQueryParameters().get(CODE);
-            String code = deque == null ? null : deque.getFirst();
-            if (logger.isDebugEnabled()) logger.debug("code = {}", code);
+            Deque<String> codeDeque = exchange.getQueryParameters().get(CODE);
+            String code = codeDeque == null ? null : codeDeque.getFirst();
+            Deque<String> stateDeque = exchange.getQueryParameters().get(STATE);
+            String state = stateDeque == null ? null : stateDeque.getFirst();
+            if (logger.isDebugEnabled()) logger.debug("code = {} state = {}", code, state);
             // check if code is in the query parameter
             if (code == null || code.trim().isEmpty()) {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
@@ -150,19 +153,18 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 exchange.setStatusCode(StatusCodes.OK);
                 Map<String, Object> rs = new HashMap<>();
                 rs.put(SCOPES, scopes);
-                // add redirectUri and denyUri to the returned json.
-                rs.put("redirectUri", config.redirectUri);
-                rs.put("denyUri", config.denyUri != null ? config.denyUri : config.redirectUri);
+                String redirectUri = config.getRedirectUri() + "?state=" + state;
+                // add redirectUri and denyUri to the returned JSON body.
+                rs.put("redirectUri", redirectUri);
+                rs.put("denyUri", config.denyUri != null ? config.denyUri : redirectUri);
                 exchange.getResponseSender().send(JsonMapper.toJson(rs));
             } else {
                 exchange.setStatusCode(StatusCodes.OK);
                 exchange.endExchange();
             }
-            return;
         } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
             removeCookies(exchange, config);
             exchange.endExchange();
-            return;
         } else {
             // first get the jwt token from httpOnly cookie sent by first step authentication
             String jwt = null;
