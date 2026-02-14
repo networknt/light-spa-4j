@@ -1,7 +1,7 @@
 package com.networknt.auth;
 
 import com.networknt.client.Http2Client;
-import com.networknt.client.simplepool.SimpleConnectionHolder;
+import com.networknt.client.simplepool.SimpleConnectionState;
 import com.networknt.config.Config;
 import com.networknt.exception.ClientException;
 import com.networknt.security.KeyUtil;
@@ -146,7 +146,7 @@ public class MsalTokenExchangeHandlerTest {
         final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<ClientResponse> reference = new AtomicReference<>();
         String requestUri = "/auth/ms/exchange";
-        SimpleConnectionHolder.ConnectionToken connectionToken = null;
+        SimpleConnectionState.ConnectionToken connectionToken = null;
 
         try {
             connectionToken = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, client.getDefaultXnioSsl(), Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));

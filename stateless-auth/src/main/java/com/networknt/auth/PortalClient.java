@@ -1,7 +1,7 @@
 package com.networknt.auth;
 
 import com.networknt.client.Http2Client;
-import com.networknt.client.simplepool.SimpleConnectionHolder;
+import com.networknt.client.simplepool.SimpleConnectionState;
 import com.networknt.cluster.Cluster;
 import com.networknt.config.Config;
 import com.networknt.config.JsonMapper;
@@ -44,7 +44,7 @@ public class PortalClient {
     {
         String host = cluster.serviceToUrl("https", commandServiceId, tag, null);
         try {
-            SimpleConnectionHolder.ConnectionToken tokenCommandConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+            SimpleConnectionState.ConnectionToken tokenCommandConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
 
             commandConnection = (ClientConnection) tokenCommandConnection.getRawConnection();
         } catch (Exception e) {
@@ -56,7 +56,7 @@ public class PortalClient {
     {
         String host = cluster.serviceToUrl("https", queryServiceId, tag, null);
         try {
-            SimpleConnectionHolder.ConnectionToken tokenQueryConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+            SimpleConnectionState.ConnectionToken tokenQueryConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
 
             queryConnection = (ClientConnection) tokenQueryConnection.getRawConnection();
         } catch (Exception e) {
@@ -72,7 +72,7 @@ public class PortalClient {
             if(commandConnection == null || !commandConnection.isOpen()) {
                 // The connection is close or not created.
                 String host = cluster.serviceToUrl("https", commandServiceId, tag, null);
-                SimpleConnectionHolder.ConnectionToken tokenCommandConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+                SimpleConnectionState.ConnectionToken tokenCommandConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
 
                 commandConnection = (ClientConnection) tokenCommandConnection.getRawConnection();
             }
@@ -106,7 +106,7 @@ public class PortalClient {
             if(queryConnection == null || !queryConnection.isOpen()) {
                 // The connection is close or not created.
                 String host = cluster.serviceToUrl("https", queryServiceId, tag, null);
-                SimpleConnectionHolder.ConnectionToken tokenQueryConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+                SimpleConnectionState.ConnectionToken tokenQueryConnection = client.borrow(new URI(host), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
 
                 queryConnection = (ClientConnection) tokenQueryConnection.getRawConnection();
             }
