@@ -33,6 +33,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * Handler for MSAL token exchange.
+ * This handler exchanges a Microsoft token for an internal token and manages session cookies.
+ *
+ * @author Steve Hu
+ */
 public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final Logger logger = LoggerFactory.getLogger(MsalTokenExchangeHandler.class);
     private static final String JWT_BEARER_TOKEN_MISSING = "ERR11000"; // New error code
@@ -46,6 +52,9 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String REFRESH_TOKEN = "refreshToken";
     private static final String USER_TYPE = "userType";
     private static final String USER_ID = "userId";
+    /**
+     * The key for scopes in the response body.
+     */
     protected static final String SCOPES = "scopes";
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
@@ -75,6 +84,9 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
     private volatile HttpHandler next;
 
+    /**
+     * Default constructor for MsalTokenExchangeHandler.
+     */
     public MsalTokenExchangeHandler() {
         MsalExchangeConfig.load();
         logger.info("MsalTokenExchangeHandler is constructed.");
@@ -309,6 +321,16 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         }
     }
 
+    /**
+     * Sets session cookies based on the token response.
+     *
+     * @param exchange the HttpServerExchange
+     * @param response the TokenResponse
+     * @param csrf the CSRF token
+     * @param config the MsalExchangeConfig
+     * @return a list of scopes from the access token
+     * @throws Exception if cookie setting fails
+     */
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, MsalExchangeConfig config) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();

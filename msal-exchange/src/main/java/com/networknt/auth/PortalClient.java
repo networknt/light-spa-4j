@@ -30,7 +30,17 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicReference;
 
 
+/**
+ * Client for calling Portal hybrid services (command and query).
+ *
+ * @author Steve Hu
+ */
 public class PortalClient {
+    /**
+     * Default constructor for PortalClient.
+     */
+    public PortalClient() {
+    }
     static final Logger logger = LoggerFactory.getLogger(PortalClient.class);
     static final String commandServiceId = "com.networknt.portal.hybrid.command-1.0.0";
     static final String queryServiceId = "com.networknt.portal.hybrid.query-1.0.0";
@@ -66,6 +76,13 @@ public class PortalClient {
 
     static final String GENERIC_EXCEPTION = "ERR10014";
 
+    /**
+     * Calls a command service with a token.
+     *
+     * @param command the command to call
+     * @param token the authentication token
+     * @return the result of the call
+     */
     public static Result<String> callCommandWithToken(String command, String token) {
         Result<String> result = null;
         try {
@@ -100,6 +117,13 @@ public class PortalClient {
         return result;
     }
 
+    /**
+     * Calls a query service with a token.
+     *
+     * @param command the command (query) to call
+     * @param token the authentication token
+     * @return the result of the call
+     */
     public static Result<String> callQueryWithToken(String command, String token) {
         Result<String> result = null;
         try {

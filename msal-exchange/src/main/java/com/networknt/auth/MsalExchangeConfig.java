@@ -11,13 +11,16 @@ import com.networknt.server.ModuleRegistry;
 import java.util.Map;
 
 // <<< REQUIRED ANNOTATION FOR SCHEMA GENERATION >>>
-@ConfigSchema(
-        configKey = "msal-exchange",
-        configName = "msal-exchange",
-        configDescription = "Configuration for the MSAL (Microsoft Authentication Library) Exchange Handler, managing token exchange and session cookies.",
-        outputFormats = {OutputFormat.JSON_SCHEMA, OutputFormat.YAML}
-)
+/**
+ * Configuration for the MSAL (Microsoft Authentication Library) Exchange Handler.
+ * This class manages token exchange and session cookies.
+ *
+ * @author Steve Hu
+ */
 public class MsalExchangeConfig {
+    /**
+     * The name of the configuration file.
+     */
     public static final String CONFIG_NAME = "msal-exchange";
 
     // --- Constant Fields ---
@@ -103,6 +106,9 @@ public class MsalExchangeConfig {
 
     // --- Constructor and Loading Logic ---
 
+    /**
+     * Default constructor for MsalExchangeConfig.
+     */
     public MsalExchangeConfig() {
         this(CONFIG_NAME);
     }
@@ -112,10 +118,19 @@ public class MsalExchangeConfig {
         setConfigData();
     }
 
+    /**
+     * Loads the configuration from the default configuration file.
+     * @return an instance of MsalExchangeConfig
+     */
     public static MsalExchangeConfig load() {
         return load(CONFIG_NAME);
     }
 
+    /**
+     * Loads the configuration from a specific configuration file.
+     * @param configName the name of the configuration file
+     * @return an instance of MsalExchangeConfig
+     */
     public static MsalExchangeConfig load(String configName) {
         if (CONFIG_NAME.equals(configName)) {
             Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
@@ -164,72 +179,140 @@ public class MsalExchangeConfig {
         if (object != null) rememberMeTimeout = Config.loadIntegerValue(REMEMBER_ME_TIMEOUT, object);
     }
 
+    /**
+     * Returns the mapped configuration.
+     * @return the mapped configuration
+     */
     public Map<String, Object> getMappedConfig() {
         return mappedConfig;
     }
 
     // --- Getters and Setters (Original Methods) ---
 
+    /**
+     * Indicates if the MSAL Exchange is enabled.
+     * @return true if enabled
+     */
     public boolean isEnabled() {
         return enabled;
     }
 
+    /**
+     * Sets whether the MSAL Exchange is enabled.
+     * @param enabled true if enabled
+     */
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
 
+    /**
+     * Gets the exchange path.
+     * @return the exchange path
+     */
     public String getExchangePath() {
         return exchangePath;
     }
 
+    /**
+     * Sets the exchange path.
+     * @param exchangePath the exchange path
+     */
     public void setExchangePath(String exchangePath) {
         this.exchangePath = exchangePath;
     }
 
+    /**
+     * Gets the logout path.
+     * @return the logout path
+     */
     public String getLogoutPath() {
         return logoutPath;
     }
 
+    /**
+     * Sets the logout path.
+     * @param logoutPath the logout path
+     */
     public void setLogoutPath(String logoutPath) {
         this.logoutPath = logoutPath;
     }
 
+    /**
+     * Gets the cookie domain.
+     * @return the cookie domain
+     */
     public String getCookieDomain() {
         return cookieDomain;
     }
 
+    /**
+     * Sets the cookie domain.
+     * @param cookieDomain the cookie domain
+     */
     public void setCookieDomain(String cookieDomain) {
         this.cookieDomain = cookieDomain;
     }
 
+    /**
+     * Gets the cookie path.
+     * @return the cookie path
+     */
     public String getCookiePath() {
         return cookiePath;
     }
 
+    /**
+     * Sets the cookie path.
+     * @param cookiePath the cookie path
+     */
     public void setCookiePath(String cookiePath) {
         this.cookiePath = cookiePath;
     }
 
+    /**
+     * Indicates if the cookie is secure.
+     * @return true if secure
+     */
     public boolean isCookieSecure() {
         return cookieSecure;
     }
 
+    /**
+     * Sets whether the cookie is secure.
+     * @param cookieSecure true if secure
+     */
     public void setCookieSecure(boolean cookieSecure) {
         this.cookieSecure = cookieSecure;
     }
 
+    /**
+     * Gets the session timeout.
+     * @return the session timeout
+     */
     public int getSessionTimeout() {
         return sessionTimeout;
     }
 
+    /**
+     * Sets the session timeout.
+     * @param sessionTimeout the session timeout
+     */
     public void setSessionTimeout(int sessionTimeout) {
         this.sessionTimeout = sessionTimeout;
     }
 
+    /**
+     * Gets the remember me timeout.
+     * @return the remember me timeout
+     */
     public int getRememberMeTimeout() {
         return rememberMeTimeout;
     }
 
+    /**
+     * Sets the remember me timeout.
+     * @param rememberMeTimeout the remember me timeout
+     */
     public void setRememberMeTimeout(int rememberMeTimeout) {
         this.rememberMeTimeout = rememberMeTimeout;
     }
