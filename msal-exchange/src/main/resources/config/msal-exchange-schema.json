@@ -5,7 +5,8 @@
   "properties" : {
     "enabled" : {
       "type" : "boolean",
-      "description" : "Indicates if the MSAL Exchange is enabled."
+      "description" : "Indicates if the MSAL Exchange is enabled.",
+      "default" : true
     },
     "exchangePath" : {
       "type" : "string",
@@ -29,15 +30,20 @@
     },
     "cookieSecure" : {
       "type" : "boolean",
-      "description" : "If the session cookie should be marked as secure (requires HTTPS)."
+      "description" : "If the session cookie should be marked as secure (requires HTTPS).",
+      "default" : false
     },
     "sessionTimeout" : {
       "type" : "integer",
-      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n"
+      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n",
+      "default" : 3600,
+      "format" : "int32"
     },
     "rememberMeTimeout" : {
       "type" : "integer",
-      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n"
+      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
+      "default" : 604800,
+      "format" : "int32"
     }
   }
 }

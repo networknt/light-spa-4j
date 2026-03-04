@@ -5,7 +5,8 @@
   "properties" : {
     "enabled" : {
       "type" : "boolean",
-      "description" : "Indicate if the StatelessAuthHandler is enabled or not"
+      "description" : "Indicate if the StatelessAuthHandler is enabled or not",
+      "default" : true
     },
     "redirectUri" : {
       "type" : "string",
@@ -19,7 +20,8 @@
     },
     "enableHttp2" : {
       "type" : "boolean",
-      "description" : "If HTTP2 should be used for backend calls (e.g., to the OAuth provider)."
+      "description" : "If HTTP2 should be used for backend calls (e.g., to the OAuth provider).",
+      "default" : false
     },
     "authPath" : {
       "type" : "string",
@@ -48,15 +50,20 @@
     },
     "cookieSecure" : {
       "type" : "boolean",
-      "description" : "If Cookie is secured."
+      "description" : "If Cookie is secured.",
+      "default" : true
     },
     "sessionTimeout" : {
       "type" : "integer",
-      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n"
+      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n",
+      "default" : 3600,
+      "format" : "int32"
     },
     "rememberMeTimeout" : {
       "type" : "integer",
-      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n"
+      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
+      "default" : 604800,
+      "format" : "int32"
     },
     "bootstrapToken" : {
       "type" : "string",
