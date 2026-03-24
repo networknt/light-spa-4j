@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -164,6 +165,17 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
+                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
+                    // check for csrf in Sec-WebSocket-Protocol header
+                    String protocol = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol");
+                    if(protocol != null && protocol.startsWith("csrf.")) {
+                        headerCsrf = protocol.substring(5);
+                    }
+                }
+                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
+                    Deque<String> csrfDeque = exchange.getQueryParameters().get(Constants.CSRF);
+                    if(csrfDeque != null) headerCsrf = csrfDeque.getFirst();
+                }
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
                     setExchangeStatus(exchange, CSRF_HEADER_MISSING);
                     return;
