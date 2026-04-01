@@ -178,9 +178,20 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    // check for csrf in Sec-WebSocket-Protocol header only for WebSocket upgrade requests
+                    // check for csrf in Sec-WebSocket-Protocol header only for real WebSocket handshake requests
                     String upgradeHeader = exchange.getRequestHeaders().getFirst(Headers.UPGRADE);
-                    String protocolHeader = ("websocket".equalsIgnoreCase(upgradeHeader))
+                    String connectionHeader = exchange.getRequestHeaders().getFirst(Headers.CONNECTION);
+                    String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
+                    String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
+                    boolean isGetMethod = "GET".equalsIgnoreCase(exchange.getRequestMethod().toString());
+                    boolean hasUpgradeConnection = connectionHeader != null
+                            && connectionHeader.toLowerCase(Locale.ROOT).contains("upgrade");
+                    boolean hasWebSocketHeaders = secWebSocketKey != null || secWebSocketVersion != null;
+                    boolean isWebSocketHandshake = "websocket".equalsIgnoreCase(upgradeHeader)
+                            && isGetMethod
+                            && hasUpgradeConnection
+                            && hasWebSocketHeaders;
+                    String protocolHeader = isWebSocketHandshake
                             ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
                             : null;
                     if(protocolHeader != null) {
