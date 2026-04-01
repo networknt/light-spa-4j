@@ -58,6 +58,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -377,7 +378,7 @@ public class StatelessAuthHandlerTest {
         try {
             ClientRequest request = new ClientRequest().setPath("/authorization?code=abc").setMethod(Methods.GET);
             connection1.sendRequest(request, client.createClientCallback(reference1, latch1));
-            latch1.await();
+            Assertions.assertTrue(latch1.await(10, TimeUnit.SECONDS), "latch1 timed out waiting for response");
         } catch (Exception e) {
             logger.error("Exception: ", e);
             throw new ClientException(e);
@@ -418,7 +419,7 @@ public class StatelessAuthHandlerTest {
             // csrf token is the second subprotocol, not the first
             request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Protocol"), "chat, csrf." + csrfToken);
             connection2.sendRequest(request, client.createClientCallback(reference2, latch2));
-            latch2.await();
+            Assertions.assertTrue(latch2.await(10, TimeUnit.SECONDS), "latch2 timed out waiting for response");
         } catch (Exception e) {
             logger.error("Exception: ", e);
             throw new ClientException(e);
