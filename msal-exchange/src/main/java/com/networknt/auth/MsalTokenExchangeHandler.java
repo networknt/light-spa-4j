@@ -60,6 +60,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
     private static final String ROLE = "role";
+    private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
 
 
     // Two separate JwtVerifier instances ---
@@ -166,10 +167,26 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    // check for csrf in Sec-WebSocket-Protocol header
-                    String protocol = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol");
-                    if(protocol != null && protocol.startsWith("csrf.")) {
-                        headerCsrf = protocol.substring(5);
+                    // Check for csrf in Sec-WebSocket-Protocol header.
+                    // Detect WebSocket handshake by requiring both Sec-WebSocket-Key and
+                    // Sec-WebSocket-Version, which together uniquely identify a WebSocket
+                    // upgrade request. We do not check the Upgrade or Connection headers
+                    // because HTTP/2 strips hop-by-hop headers per RFC 9113 §8.2.2.
+                    String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
+                    String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
+                    boolean isWebSocketHandshake = secWebSocketKey != null && secWebSocketVersion != null;
+                    String protocolHeader = isWebSocketHandshake
+                            ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
+                            : null;
+                    if(protocolHeader != null) {
+                        String[] protocols = protocolHeader.split(",");
+                        for (String p : protocols) {
+                            String trimmed = p.trim();
+                            if (trimmed.startsWith(CSRF_PROTOCOL_PREFIX)) {
+                                headerCsrf = trimmed.substring(CSRF_PROTOCOL_PREFIX.length());
+                                break;
+                            }
+                        }
                     }
                 }
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
@@ -185,7 +202,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = " + headerCsrf + " jwtCsrf = " + jwtCsrf);
+                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
                 if(!headerCsrf.equals(jwtCsrf)) {
                     setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
                     return;
