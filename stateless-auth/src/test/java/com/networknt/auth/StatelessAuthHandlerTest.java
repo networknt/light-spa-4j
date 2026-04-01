@@ -389,6 +389,8 @@ public class StatelessAuthHandlerTest {
 
         // Extract the access token cookie from the auth response
         List<String> setCookies = reference1.get().getResponseHeaders().get(Headers.SET_COOKIE);
+        Assertions.assertNotNull(setCookies, "Expected at least one Set-Cookie header but none were returned");
+        Assertions.assertFalse(setCookies.isEmpty(), "Expected at least one Set-Cookie header but none were returned");
         String accessTokenCookieValue = null;
         for (String cookieHeader : setCookies) {
             if (cookieHeader.startsWith("accessToken=")) {
