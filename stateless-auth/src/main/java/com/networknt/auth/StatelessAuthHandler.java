@@ -99,6 +99,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
     private static final String ROLE = "role";
+    private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
 
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
@@ -177,10 +178,31 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    // check for csrf in Sec-WebSocket-Protocol header
-                    String protocol = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol");
-                    if(protocol != null && protocol.startsWith("csrf.")) {
-                        headerCsrf = protocol.substring(5);
+                    // check for csrf in Sec-WebSocket-Protocol header only for real WebSocket handshake requests
+                    String upgradeHeader = exchange.getRequestHeaders().getFirst(Headers.UPGRADE);
+                    String connectionHeader = exchange.getRequestHeaders().getFirst(Headers.CONNECTION);
+                    String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
+                    String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
+                    boolean isGetMethod = "GET".equalsIgnoreCase(exchange.getRequestMethod().toString());
+                    boolean hasUpgradeConnection = connectionHeader != null
+                            && connectionHeader.toLowerCase(Locale.ROOT).contains("upgrade");
+                    boolean hasWebSocketHeaders = secWebSocketKey != null || secWebSocketVersion != null;
+                    boolean isWebSocketHandshake = "websocket".equalsIgnoreCase(upgradeHeader)
+                            && isGetMethod
+                            && hasUpgradeConnection
+                            && hasWebSocketHeaders;
+                    String protocolHeader = isWebSocketHandshake
+                            ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
+                            : null;
+                    if(protocolHeader != null) {
+                        String[] protocols = protocolHeader.split(",");
+                        for (String p : protocols) {
+                            String trimmed = p.trim();
+                            if (trimmed.startsWith(CSRF_PROTOCOL_PREFIX)) {
+                                headerCsrf = trimmed.substring(CSRF_PROTOCOL_PREFIX.length());
+                                break;
+                            }
+                        }
                     }
                 }
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {

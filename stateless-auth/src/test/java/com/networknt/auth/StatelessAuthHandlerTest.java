@@ -49,6 +49,7 @@ import javax.net.ssl.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.security.*;
 import java.security.cert.CertificateException;
@@ -58,6 +59,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -113,9 +115,29 @@ public class StatelessAuthHandlerTest {
                                         exchange.getResponseSender().send("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}");
                                     })
                                     .addPrefixPath("/oauth2/token", (exchange) -> {
+                                        exchange.startBlocking();
+                                        // Parse the POST body to extract the csrf value so the mock
+                                        // server mirrors it into the JWT, just as a real token server would.
+                                        String csrfValue = null;
+                                        try {
+                                            byte[] bodyBytes = exchange.getInputStream().readAllBytes();
+                                            String body = new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
+                                            for (String param : body.split("&")) {
+                                                int eqIdx = param.indexOf('=');
+                                                if (eqIdx > 0) {
+                                                    String key = URLDecoder.decode(param.substring(0, eqIdx), java.nio.charset.StandardCharsets.UTF_8);
+                                                    if ("csrf".equals(key)) {
+                                                        csrfValue = URLDecoder.decode(param.substring(eqIdx + 1), java.nio.charset.StandardCharsets.UTF_8);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        } catch (Exception e) {
+                                            logger.error("Failed to parse POST body for CSRF value in mock token server", e);
+                                        }
                                         // create a token that expired in 5 seconds.
                                         Map<String, Object> map = new HashMap<>();
-                                        String token = getJwt(600, csrfToken);
+                                        String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
                                         map.put("access_token", token);
                                         map.put("token_type", "Bearer");
                                         map.put("expires_in", 5);
@@ -159,6 +181,9 @@ public class StatelessAuthHandlerTest {
     static RoutingHandler getTestHandler() {
         return Handlers.routing()
                 .add(Methods.GET, "/authorization", exchange -> {
+                    exchange.getResponseSender().send("OK");
+                })
+                .add(Methods.GET, "/api", exchange -> {
                     exchange.getResponseSender().send("OK");
                 });
     }
@@ -354,6 +379,87 @@ public class StatelessAuthHandlerTest {
         }
 
         return sslContext;
+    }
+
+    @Test
+    public void testCsrfInSecondSubprotocolHeader() throws Exception {
+        // Step 1: authenticate to get the access token cookie
+        final Http2Client client = Http2Client.getInstance();
+        final CountDownLatch latch1 = new CountDownLatch(1);
+        final SimpleConnectionState.ConnectionToken token1;
+
+        try {
+            token1 = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        } catch (Exception e) {
+            throw new ClientException(e);
+        }
+
+        final ClientConnection connection1 = (ClientConnection) token1.getRawConnection();
+        final AtomicReference<ClientResponse> reference1 = new AtomicReference<>();
+        try {
+            ClientRequest request = new ClientRequest().setPath("/authorization?code=abc").setMethod(Methods.GET);
+            connection1.sendRequest(request, client.createClientCallback(reference1, latch1));
+            Assertions.assertTrue(latch1.await(10, TimeUnit.SECONDS), "latch1 timed out waiting for response");
+        } catch (Exception e) {
+            logger.error("Exception: ", e);
+            throw new ClientException(e);
+        } finally {
+            client.restore(token1);
+        }
+
+        Assertions.assertEquals(StatusCodes.OK, reference1.get().getResponseCode());
+
+        // Extract the access token cookie and the csrf cookie from the auth response
+        List<String> setCookies = reference1.get().getResponseHeaders().get(Headers.SET_COOKIE);
+        Assertions.assertNotNull(setCookies, "Expected at least one Set-Cookie header but none were returned");
+        Assertions.assertFalse(setCookies.isEmpty(), "Expected at least one Set-Cookie header but none were returned");
+        String accessTokenCookieValue = null;
+        String csrfCookieValue = null;
+        for (String cookieHeader : setCookies) {
+            if (cookieHeader.startsWith("accessToken=")) {
+                accessTokenCookieValue = cookieHeader.split(";")[0]; // "accessToken=<value>"
+            } else if (cookieHeader.startsWith("csrf=")) {
+                csrfCookieValue = cookieHeader.split(";")[0].substring("csrf=".length()); // "<value>"
+            }
+            if (accessTokenCookieValue != null && csrfCookieValue != null) break;
+        }
+        Assertions.assertNotNull(accessTokenCookieValue, "accessToken cookie must be present");
+        Assertions.assertNotNull(csrfCookieValue, "csrf cookie must be present");
+
+        // Step 2: make a request with Sec-WebSocket-Protocol containing csrf token as second subprotocol
+        final CountDownLatch latch2 = new CountDownLatch(1);
+        final SimpleConnectionState.ConnectionToken token2;
+
+        try {
+            token2 = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        } catch (Exception e) {
+            throw new ClientException(e);
+        }
+
+        final ClientConnection connection2 = (ClientConnection) token2.getRawConnection();
+        final AtomicReference<ClientResponse> reference2 = new AtomicReference<>();
+        try {
+            ClientRequest request = new ClientRequest().setPath("/api").setMethod(Methods.GET);
+            request.getRequestHeaders().put(Headers.COOKIE, accessTokenCookieValue);
+            // simulate a WebSocket upgrade request
+            request.getRequestHeaders().put(Headers.UPGRADE, "websocket");
+            request.getRequestHeaders().put(Headers.CONNECTION, "Upgrade");
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Version"), "13");
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Key"), "dGhlIHNhbXBsZSBub25jZQ==");
+            // csrf token is the second subprotocol, not the first; use the actual csrf cookie value
+            // issued in Step 1 rather than the static test constant
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Protocol"), "chat, csrf." + csrfCookieValue);
+            connection2.sendRequest(request, client.createClientCallback(reference2, latch2));
+            Assertions.assertTrue(latch2.await(10, TimeUnit.SECONDS), "latch2 timed out waiting for response");
+        } catch (Exception e) {
+            logger.error("Exception: ", e);
+            throw new ClientException(e);
+        } finally {
+            client.restore(token2);
+        }
+
+        int statusCode = reference2.get().getResponseCode();
+        Assertions.assertEquals(StatusCodes.OK, statusCode);
     }
 
     @Test
