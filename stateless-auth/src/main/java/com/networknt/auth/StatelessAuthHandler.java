@@ -178,19 +178,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    // check for csrf in Sec-WebSocket-Protocol header only for real WebSocket handshake requests
-                    String upgradeHeader = exchange.getRequestHeaders().getFirst(Headers.UPGRADE);
-                    String connectionHeader = exchange.getRequestHeaders().getFirst(Headers.CONNECTION);
+                    // Check for csrf in Sec-WebSocket-Protocol header.
+                    // Detect WebSocket handshake by requiring both Sec-WebSocket-Key and
+                    // Sec-WebSocket-Version, which together uniquely identify a WebSocket
+                    // upgrade request. We do not check the Upgrade or Connection headers
+                    // because HTTP/2 strips hop-by-hop headers per RFC 9113 §8.2.2.
                     String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
                     String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
-                    boolean isGetMethod = "GET".equalsIgnoreCase(exchange.getRequestMethod().toString());
-                    boolean hasUpgradeConnection = connectionHeader != null
-                            && connectionHeader.toLowerCase(Locale.ROOT).contains("upgrade");
-                    boolean hasWebSocketHeaders = secWebSocketKey != null || secWebSocketVersion != null;
-                    boolean isWebSocketHandshake = "websocket".equalsIgnoreCase(upgradeHeader)
-                            && isGetMethod
-                            && hasUpgradeConnection
-                            && hasWebSocketHeaders;
+                    boolean isWebSocketHandshake = secWebSocketKey != null && secWebSocketVersion != null;
                     String protocolHeader = isWebSocketHandshake
                             ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
                             : null;
