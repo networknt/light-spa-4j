@@ -178,9 +178,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
                     // check for csrf in Sec-WebSocket-Protocol header
-                    String protocol = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol");
-                    if(protocol != null && protocol.startsWith("csrf.")) {
-                        headerCsrf = protocol.substring(5);
+                    String protocolHeader = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol");
+                    if(protocolHeader != null) {
+                        String[] protocols = protocolHeader.split(",");
+                        for (String p : protocols) {
+                            String trimmed = p.trim();
+                            if (trimmed.startsWith("csrf.")) {
+                                headerCsrf = trimmed.substring(5);
+                                break;
+                            }
+                        }
                     }
                 }
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
