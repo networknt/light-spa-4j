@@ -132,7 +132,8 @@ public class StatelessAuthHandlerTest {
                                                     }
                                                 }
                                             }
-                                        } catch (Exception ignored) {
+                                        } catch (Exception e) {
+                                            logger.error("Failed to parse POST body for CSRF value in mock token server", e);
                                         }
                                         // create a token that expired in 5 seconds.
                                         Map<String, Object> map = new HashMap<>();
