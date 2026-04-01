@@ -49,6 +49,7 @@ import javax.net.ssl.*;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.nio.ByteBuffer;
 import java.security.*;
 import java.security.cert.CertificateException;
@@ -114,9 +115,28 @@ public class StatelessAuthHandlerTest {
                                         exchange.getResponseSender().send("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}");
                                     })
                                     .addPrefixPath("/oauth2/token", (exchange) -> {
+                                        exchange.startBlocking();
+                                        // Parse the POST body to extract the csrf value so the mock
+                                        // server mirrors it into the JWT, just as a real token server would.
+                                        String csrfValue = null;
+                                        try {
+                                            byte[] bodyBytes = exchange.getInputStream().readAllBytes();
+                                            String body = new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
+                                            for (String param : body.split("&")) {
+                                                int eqIdx = param.indexOf('=');
+                                                if (eqIdx > 0) {
+                                                    String key = URLDecoder.decode(param.substring(0, eqIdx), java.nio.charset.StandardCharsets.UTF_8);
+                                                    if ("csrf".equals(key)) {
+                                                        csrfValue = URLDecoder.decode(param.substring(eqIdx + 1), java.nio.charset.StandardCharsets.UTF_8);
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        } catch (Exception ignored) {
+                                        }
                                         // create a token that expired in 5 seconds.
                                         Map<String, Object> map = new HashMap<>();
-                                        String token = getJwt(600, csrfToken);
+                                        String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
                                         map.put("access_token", token);
                                         map.put("token_type", "Bearer");
                                         map.put("expires_in", 5);
@@ -388,18 +408,22 @@ public class StatelessAuthHandlerTest {
 
         Assertions.assertEquals(StatusCodes.OK, reference1.get().getResponseCode());
 
-        // Extract the access token cookie from the auth response
+        // Extract the access token cookie and the csrf cookie from the auth response
         List<String> setCookies = reference1.get().getResponseHeaders().get(Headers.SET_COOKIE);
         Assertions.assertNotNull(setCookies, "Expected at least one Set-Cookie header but none were returned");
         Assertions.assertFalse(setCookies.isEmpty(), "Expected at least one Set-Cookie header but none were returned");
         String accessTokenCookieValue = null;
+        String csrfCookieValue = null;
         for (String cookieHeader : setCookies) {
             if (cookieHeader.startsWith("accessToken=")) {
                 accessTokenCookieValue = cookieHeader.split(";")[0]; // "accessToken=<value>"
-                break;
+            } else if (cookieHeader.startsWith("csrf=")) {
+                csrfCookieValue = cookieHeader.split(";")[0].substring("csrf=".length()); // "<value>"
             }
+            if (accessTokenCookieValue != null && csrfCookieValue != null) break;
         }
         Assertions.assertNotNull(accessTokenCookieValue, "accessToken cookie must be present");
+        Assertions.assertNotNull(csrfCookieValue, "csrf cookie must be present");
 
         // Step 2: make a request with Sec-WebSocket-Protocol containing csrf token as second subprotocol
         final CountDownLatch latch2 = new CountDownLatch(1);
@@ -418,8 +442,9 @@ public class StatelessAuthHandlerTest {
             request.getRequestHeaders().put(Headers.COOKIE, accessTokenCookieValue);
             // simulate a WebSocket upgrade request
             request.getRequestHeaders().put(Headers.UPGRADE, "websocket");
-            // csrf token is the second subprotocol, not the first
-            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Protocol"), "chat, csrf." + csrfToken);
+            // csrf token is the second subprotocol, not the first; use the actual csrf cookie value
+            // issued in Step 1 rather than the static test constant
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Protocol"), "chat, csrf." + csrfCookieValue);
             connection2.sendRequest(request, client.createClientCallback(reference2, latch2));
             Assertions.assertTrue(latch2.await(10, TimeUnit.SECONDS), "latch2 timed out waiting for response");
         } catch (Exception e) {
