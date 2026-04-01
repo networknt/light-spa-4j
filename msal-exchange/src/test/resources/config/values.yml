@@ -3,6 +3,10 @@ client.multipleAuthServers: true
 client.pathPrefixServices:
   /auth/ms: MSAL_EXCHANGE
   /portal: PORTAL
+  /api: PORTAL
+
+client.tokenKeyServerUrl: https://localhost:5882
+client.tokenKeyUri: /oauth2/N2CMw0HGQXeLvC1wBfln2A/keys
 
 client.tokenKeyServiceIdAuthServers:
   MSAL_EXCHANGE:
