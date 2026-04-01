@@ -418,6 +418,9 @@ public class StatelessAuthHandlerTest {
             request.getRequestHeaders().put(Headers.COOKIE, accessTokenCookieValue);
             // simulate a WebSocket upgrade request
             request.getRequestHeaders().put(Headers.UPGRADE, "websocket");
+            request.getRequestHeaders().put(Headers.CONNECTION, "Upgrade");
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Version"), "13");
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Key"), "dGhlIHNhbXBsZSBub25jZQ==");
             // csrf token is the second subprotocol, not the first
             request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Protocol"), "chat, csrf." + csrfToken);
             connection2.sendRequest(request, client.createClientCallback(reference2, latch2));
