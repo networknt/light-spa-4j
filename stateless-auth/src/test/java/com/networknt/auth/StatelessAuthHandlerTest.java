@@ -160,6 +160,9 @@ public class StatelessAuthHandlerTest {
         return Handlers.routing()
                 .add(Methods.GET, "/authorization", exchange -> {
                     exchange.getResponseSender().send("OK");
+                })
+                .add(Methods.GET, "/api", exchange -> {
+                    exchange.getResponseSender().send("OK");
                 });
     }
 
@@ -354,6 +357,75 @@ public class StatelessAuthHandlerTest {
         }
 
         return sslContext;
+    }
+
+    @Test
+    public void testWebSocketCsrfInSecondSubprotocol() throws Exception {
+        // Step 1: authenticate to get the access token cookie
+        final Http2Client client = Http2Client.getInstance();
+        final CountDownLatch latch1 = new CountDownLatch(1);
+        final SimpleConnectionState.ConnectionToken token1;
+
+        try {
+            token1 = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        } catch (Exception e) {
+            throw new ClientException(e);
+        }
+
+        final ClientConnection connection1 = (ClientConnection) token1.getRawConnection();
+        final AtomicReference<ClientResponse> reference1 = new AtomicReference<>();
+        try {
+            ClientRequest request = new ClientRequest().setPath("/authorization?code=abc").setMethod(Methods.GET);
+            connection1.sendRequest(request, client.createClientCallback(reference1, latch1));
+            latch1.await();
+        } catch (Exception e) {
+            logger.error("Exception: ", e);
+            throw new ClientException(e);
+        } finally {
+            client.restore(token1);
+        }
+
+        Assertions.assertEquals(StatusCodes.OK, reference1.get().getResponseCode());
+
+        // Extract the access token cookie from the auth response
+        List<String> setCookies = reference1.get().getResponseHeaders().get(Headers.SET_COOKIE);
+        String accessTokenCookieValue = null;
+        for (String cookieHeader : setCookies) {
+            if (cookieHeader.startsWith("accessToken=")) {
+                accessTokenCookieValue = cookieHeader.split(";")[0]; // "accessToken=<value>"
+                break;
+            }
+        }
+        Assertions.assertNotNull(accessTokenCookieValue, "accessToken cookie must be present");
+
+        // Step 2: make a request with Sec-WebSocket-Protocol containing csrf token as second subprotocol
+        final CountDownLatch latch2 = new CountDownLatch(1);
+        final SimpleConnectionState.ConnectionToken token2;
+
+        try {
+            token2 = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        } catch (Exception e) {
+            throw new ClientException(e);
+        }
+
+        final ClientConnection connection2 = (ClientConnection) token2.getRawConnection();
+        final AtomicReference<ClientResponse> reference2 = new AtomicReference<>();
+        try {
+            ClientRequest request = new ClientRequest().setPath("/api").setMethod(Methods.GET);
+            request.getRequestHeaders().put(Headers.COOKIE, accessTokenCookieValue);
+            // csrf token is the second subprotocol, not the first
+            request.getRequestHeaders().put(new HttpString("Sec-WebSocket-Protocol"), "chat, csrf." + csrfToken);
+            connection2.sendRequest(request, client.createClientCallback(reference2, latch2));
+            latch2.await();
+        } catch (Exception e) {
+            logger.error("Exception: ", e);
+            throw new ClientException(e);
+        } finally {
+            client.restore(token2);
+        }
+
+        int statusCode = reference2.get().getResponseCode();
+        Assertions.assertEquals(StatusCodes.OK, statusCode);
     }
 
     @Test

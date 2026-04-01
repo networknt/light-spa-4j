@@ -99,6 +99,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
     private static final String ROLE = "role";
+    private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
 
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
@@ -183,8 +184,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                         String[] protocols = protocolHeader.split(",");
                         for (String p : protocols) {
                             String trimmed = p.trim();
-                            if (trimmed.startsWith("csrf.")) {
-                                headerCsrf = trimmed.substring(5);
+                            if (trimmed.startsWith(CSRF_PROTOCOL_PREFIX)) {
+                                headerCsrf = trimmed.substring(CSRF_PROTOCOL_PREFIX.length());
                                 break;
                             }
                         }
