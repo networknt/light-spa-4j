@@ -179,13 +179,13 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
                 if(headerCsrf == null || headerCsrf.trim().length() == 0) {
                     // Check for csrf in Sec-WebSocket-Protocol header.
-                    // Detect WebSocket handshake by the presence of Sec-WebSocket-Key or
-                    // Sec-WebSocket-Version, which are unique to WebSocket upgrade requests.
-                    // We do not check the Upgrade or Connection headers because HTTP/2
-                    // strips hop-by-hop headers per RFC 9113 §8.2.2.
+                    // Detect WebSocket handshake by requiring both Sec-WebSocket-Key and
+                    // Sec-WebSocket-Version, which together uniquely identify a WebSocket
+                    // upgrade request. We do not check the Upgrade or Connection headers
+                    // because HTTP/2 strips hop-by-hop headers per RFC 9113 §8.2.2.
                     String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
                     String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
-                    boolean isWebSocketHandshake = secWebSocketKey != null || secWebSocketVersion != null;
+                    boolean isWebSocketHandshake = secWebSocketKey != null && secWebSocketVersion != null;
                     String protocolHeader = isWebSocketHandshake
                             ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
                             : null;

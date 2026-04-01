@@ -179,18 +179,20 @@ public class StatelessAuthHandlerTest {
         } catch (Exception e) {
             logger.error("Failed to parse POST body for CSRF value in mock token server", e);
         }
-        // create a token that expired in 5 seconds.
+        // Create a token with 600 second expiry (matches the JWT exp claim).
         try {
             Map<String, Object> map = new HashMap<>();
             String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
             map.put("access_token", token);
             map.put("token_type", "Bearer");
-            map.put("expires_in", 5);
+            map.put("expires_in", 600);
             exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
             exchange.getResponseSender().send(ByteBuffer.wrap(
                     Config.getInstance().getMapper().writeValueAsBytes(map)));
         } catch (Exception e) {
             logger.error("Failed to generate token in mock token server", e);
+            exchange.setStatusCode(500);
+            exchange.getResponseSender().send("Internal Server Error");
         }
     }
 
