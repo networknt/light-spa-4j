@@ -361,7 +361,7 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
-    public void testWebSocketCsrfInSecondSubprotocol() throws Exception {
+    public void testCsrfInSecondSubprotocolHeader() throws Exception {
         // Step 1: authenticate to get the access token cookie
         final Http2Client client = Http2Client.getInstance();
         final CountDownLatch latch1 = new CountDownLatch(1);
