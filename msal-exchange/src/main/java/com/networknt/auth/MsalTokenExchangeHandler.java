@@ -234,14 +234,10 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         if(cookie != null) {
             String refreshToken = cookie.getValue();
             if(refreshToken != null) {
-                TokenRequest tokenRequest = new RefreshTokenRequest();
-                String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
-                tokenRequest.setCsrf(csrf);
-                ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
-                Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
+                RefreshTokenSingleFlight.RefreshResult result = RefreshTokenSingleFlight.renew(refreshToken, logger);
                 if(result.isSuccess()) {
-                    TokenResponse response = result.getResult();
-                    setCookies(exchange, response, csrf, config);
+                    TokenResponse response = result.getResponse();
+                    setCookies(exchange, response, result.getCsrf(), config);
                     jwt = response.getAccessToken();
                 } else {
                     if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
