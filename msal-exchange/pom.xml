@@ -33,6 +33,10 @@
     <dependencies>
         <dependency>
             <groupId>com.networknt</groupId>
+            <artifactId>stateless-auth</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.networknt</groupId>
             <artifactId>config</artifactId>
         </dependency>
         <dependency>
