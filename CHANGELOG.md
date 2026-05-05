@@ -10,6 +10,8 @@
 - fixes \#158 resolve test failure introduced by the PR [\#159](https://github.com/networknt/light-spa-4j/pull/159) ([stevehu](https://github.com/stevehu))
 - fixes \#156 improve the security logic for websocket browser client [\#157](https://github.com/networknt/light-spa-4j/pull/157) ([stevehu](https://github.com/stevehu))
 - fixes \#154 csrf token handling for websocket browser client [\#155](https://github.com/networknt/light-spa-4j/pull/155) ([stevehu](https://github.com/stevehu))
+
+
 ## [2.3.3](https://github.com/networknt/light-spa-4j/tree/2.3.3) (2026-02-19)
 
 
