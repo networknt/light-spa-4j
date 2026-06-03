@@ -373,8 +373,10 @@ public class MsalTokenExchangeHandlerTest {
         MsalExchangeConfig config = MsalExchangeConfig.load();
         String originalAuthorizationToken = config.getAuthorizationToken();
         String originalLightTokenHeader = config.getLightTokenHeader();
+        String originalMsalAccessTokenCookie = config.getMsalAccessTokenCookie();
         config.setAuthorizationToken(MsalExchangeConfig.AUTHORIZATION_TOKEN_AZURE_MSAL);
         config.setLightTokenHeader(MsalExchangeConfig.DEFAULT_LIGHT_TOKEN_HEADER);
+        config.setMsalAccessTokenCookie(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_COOKIE);
 
         final CountDownLatch latch = new CountDownLatch(1);
         final SimpleConnectionState.ConnectionToken connectionToken;
@@ -384,6 +386,7 @@ public class MsalTokenExchangeHandlerTest {
         } catch (Exception e) {
             config.setAuthorizationToken(originalAuthorizationToken);
             config.setLightTokenHeader(originalLightTokenHeader);
+            config.setMsalAccessTokenCookie(originalMsalAccessTokenCookie);
             throw new ClientException(e);
         }
 
@@ -391,8 +394,7 @@ public class MsalTokenExchangeHandlerTest {
         final AtomicReference<ClientResponse> reference = new AtomicReference<>();
         try {
             ClientRequest request = new ClientRequest().setPath("/api").setMethod(Methods.GET);
-            request.getRequestHeaders().put(Headers.COOKIE, "accessToken=" + lightJwt);
-            request.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + azureJwt);
+            request.getRequestHeaders().put(Headers.COOKIE, "accessToken=" + lightJwt + "; " + MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_COOKIE + "=" + azureJwt);
             request.getRequestHeaders().put(new HttpString("X-CSRF-TOKEN"), testCsrf);
             connection.sendRequest(request, client.createClientCallback(reference, latch));
             Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS), "latch timed out waiting for response");
@@ -402,6 +404,7 @@ public class MsalTokenExchangeHandlerTest {
         } finally {
             config.setAuthorizationToken(originalAuthorizationToken);
             config.setLightTokenHeader(originalLightTokenHeader);
+            config.setMsalAccessTokenCookie(originalMsalAccessTokenCookie);
             client.restore(connectionToken);
         }
 
@@ -410,6 +413,62 @@ public class MsalTokenExchangeHandlerTest {
         Assertions.assertEquals(StatusCodes.OK, statusCode);
         Assertions.assertTrue(body.contains("Authorization=Bearer " + azureJwt));
         Assertions.assertTrue(body.contains("X-Light-Token=Bearer " + lightJwt));
+    }
+
+    @Test
+    public void testAzureMsalExchangeStoresMsalAccessTokenCookie() throws Exception {
+        String idJwt = getJwt(600, "idCsrfIgnored");
+        String azureAccessJwt = getJwt(600, "azureAccessCsrfIgnored");
+        MsalExchangeConfig config = MsalExchangeConfig.load();
+        String originalAuthorizationToken = config.getAuthorizationToken();
+        String originalExchangePath = config.getExchangePath();
+        String originalLightTokenHeader = config.getLightTokenHeader();
+        String originalMsalAccessTokenHeader = config.getMsalAccessTokenHeader();
+        String originalMsalAccessTokenCookie = config.getMsalAccessTokenCookie();
+        config.setAuthorizationToken(MsalExchangeConfig.AUTHORIZATION_TOKEN_AZURE_MSAL);
+        config.setExchangePath("/api/ms/exchange");
+        config.setLightTokenHeader(MsalExchangeConfig.DEFAULT_LIGHT_TOKEN_HEADER);
+        config.setMsalAccessTokenHeader(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_HEADER);
+        config.setMsalAccessTokenCookie(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_COOKIE);
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final SimpleConnectionState.ConnectionToken connectionToken;
+
+        try {
+            connectionToken = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        } catch (Exception e) {
+            config.setAuthorizationToken(originalAuthorizationToken);
+            config.setExchangePath(originalExchangePath);
+            config.setLightTokenHeader(originalLightTokenHeader);
+            config.setMsalAccessTokenHeader(originalMsalAccessTokenHeader);
+            config.setMsalAccessTokenCookie(originalMsalAccessTokenCookie);
+            throw new ClientException(e);
+        }
+
+        final ClientConnection connection = (ClientConnection) connectionToken.getRawConnection();
+        final AtomicReference<ClientResponse> reference = new AtomicReference<>();
+        try {
+            ClientRequest request = new ClientRequest().setPath("/api/ms/exchange").setMethod(Methods.GET);
+            request.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + idJwt);
+            request.getRequestHeaders().put(new HttpString(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_HEADER), "Bearer " + azureAccessJwt);
+            connection.sendRequest(request, client.createClientCallback(reference, latch));
+            Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS), "latch timed out waiting for response");
+        } catch (Exception e) {
+            logger.error("Exception: ", e);
+            throw new ClientException(e);
+        } finally {
+            config.setAuthorizationToken(originalAuthorizationToken);
+            config.setExchangePath(originalExchangePath);
+            config.setLightTokenHeader(originalLightTokenHeader);
+            config.setMsalAccessTokenHeader(originalMsalAccessTokenHeader);
+            config.setMsalAccessTokenCookie(originalMsalAccessTokenCookie);
+            client.restore(connectionToken);
+        }
+
+        Assertions.assertEquals(StatusCodes.OK, reference.get().getResponseCode());
+        List<String> setCookies = reference.get().getResponseHeaders().get(Headers.SET_COOKIE);
+        Assertions.assertNotNull(setCookies, "Expected Set-Cookie headers");
+        Assertions.assertTrue(setCookies.stream().anyMatch(cookie -> cookie.startsWith(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_COOKIE + "=" + azureAccessJwt)));
     }
 
     @Test

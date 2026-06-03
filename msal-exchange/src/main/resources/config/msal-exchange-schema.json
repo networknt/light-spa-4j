@@ -55,6 +55,16 @@
       "type" : "string",
       "description" : "Header used for the light-oauth token when authorizationToken is azure-msal.",
       "default" : "X-Light-Token"
+    },
+    "msalAccessTokenHeader" : {
+      "type" : "string",
+      "description" : "Header that carries the Azure MSAL access token on the exchange request when authorizationToken is azure-msal.",
+      "default" : "X-MSAL-Access-Token"
+    },
+    "msalAccessTokenCookie" : {
+      "type" : "string",
+      "description" : "HttpOnly cookie used to store the Azure MSAL access token after exchange when authorizationToken is azure-msal.",
+      "default" : "msalAccessToken"
     }
   }
 }

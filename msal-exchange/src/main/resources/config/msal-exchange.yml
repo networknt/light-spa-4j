@@ -21,3 +21,7 @@ rememberMeTimeout: ${msal-exchange.rememberMeTimeout:604800}
 authorizationToken: ${msal-exchange.authorizationToken:light-oauth}
 # Header used for the light-oauth token when authorizationToken is azure-msal.
 lightTokenHeader: ${msal-exchange.lightTokenHeader:X-Light-Token}
+# Header that carries the Azure MSAL access token on the exchange request when authorizationToken is azure-msal.
+msalAccessTokenHeader: ${msal-exchange.msalAccessTokenHeader:X-MSAL-Access-Token}
+# HttpOnly cookie used to store the Azure MSAL access token after exchange when authorizationToken is azure-msal.
+msalAccessTokenCookie: ${msal-exchange.msalAccessTokenCookie:msalAccessToken}

@@ -34,9 +34,13 @@ public class MsalExchangeConfig {
     private static final String REMEMBER_ME_TIMEOUT = "rememberMeTimeout";
     private static final String AUTHORIZATION_TOKEN = "authorizationToken";
     private static final String LIGHT_TOKEN_HEADER = "lightTokenHeader";
+    private static final String MSAL_ACCESS_TOKEN_HEADER = "msalAccessTokenHeader";
+    private static final String MSAL_ACCESS_TOKEN_COOKIE = "msalAccessTokenCookie";
     public static final String AUTHORIZATION_TOKEN_LIGHT_OAUTH = "light-oauth";
     public static final String AUTHORIZATION_TOKEN_AZURE_MSAL = "azure-msal";
     public static final String DEFAULT_LIGHT_TOKEN_HEADER = "X-Light-Token";
+    public static final String DEFAULT_MSAL_ACCESS_TOKEN_HEADER = "X-MSAL-Access-Token";
+    public static final String DEFAULT_MSAL_ACCESS_TOKEN_COOKIE = "msalAccessToken";
 
     // --- Annotated Fields ---
     // --- Annotated Fields ---
@@ -125,6 +129,22 @@ public class MsalExchangeConfig {
     )
     String lightTokenHeader = DEFAULT_LIGHT_TOKEN_HEADER;
 
+    @StringField(
+            configFieldName = MSAL_ACCESS_TOKEN_HEADER,
+            externalizedKeyName = MSAL_ACCESS_TOKEN_HEADER,
+            description = "Header that carries the Azure MSAL access token on the exchange request when authorizationToken is azure-msal.",
+            defaultValue = DEFAULT_MSAL_ACCESS_TOKEN_HEADER
+    )
+    String msalAccessTokenHeader = DEFAULT_MSAL_ACCESS_TOKEN_HEADER;
+
+    @StringField(
+            configFieldName = MSAL_ACCESS_TOKEN_COOKIE,
+            externalizedKeyName = MSAL_ACCESS_TOKEN_COOKIE,
+            description = "HttpOnly cookie used to store the Azure MSAL access token after exchange when authorizationToken is azure-msal.",
+            defaultValue = DEFAULT_MSAL_ACCESS_TOKEN_COOKIE
+    )
+    String msalAccessTokenCookie = DEFAULT_MSAL_ACCESS_TOKEN_COOKIE;
+
     // --- Constructor and Loading Logic ---
 
     /**
@@ -205,6 +225,12 @@ public class MsalExchangeConfig {
         object = mappedConfig.get(LIGHT_TOKEN_HEADER);
         if (object != null) lightTokenHeader = ((String) object).trim();
 
+        object = mappedConfig.get(MSAL_ACCESS_TOKEN_HEADER);
+        if (object != null) msalAccessTokenHeader = ((String) object).trim();
+
+        object = mappedConfig.get(MSAL_ACCESS_TOKEN_COOKIE);
+        if (object != null) msalAccessTokenCookie = ((String) object).trim();
+
         validateTokenPlacement();
     }
 
@@ -218,8 +244,22 @@ public class MsalExchangeConfig {
         if (lightTokenHeader == null || lightTokenHeader.trim().length() == 0) {
             lightTokenHeader = DEFAULT_LIGHT_TOKEN_HEADER;
         }
-        if (AUTHORIZATION_TOKEN_AZURE_MSAL.equals(authorizationToken) && "Authorization".equalsIgnoreCase(lightTokenHeader)) {
-            throw new IllegalArgumentException("msal-exchange.lightTokenHeader must not be Authorization when authorizationToken is azure-msal");
+        if (msalAccessTokenHeader == null || msalAccessTokenHeader.trim().length() == 0) {
+            msalAccessTokenHeader = DEFAULT_MSAL_ACCESS_TOKEN_HEADER;
+        }
+        if (msalAccessTokenCookie == null || msalAccessTokenCookie.trim().length() == 0) {
+            msalAccessTokenCookie = DEFAULT_MSAL_ACCESS_TOKEN_COOKIE;
+        }
+        if (AUTHORIZATION_TOKEN_AZURE_MSAL.equals(authorizationToken)) {
+            if ("Authorization".equalsIgnoreCase(lightTokenHeader)) {
+                throw new IllegalArgumentException("msal-exchange.lightTokenHeader must not be Authorization when authorizationToken is azure-msal");
+            }
+            if ("Authorization".equalsIgnoreCase(msalAccessTokenHeader)) {
+                throw new IllegalArgumentException("msal-exchange.msalAccessTokenHeader must not be Authorization because Authorization carries the MSAL ID token on the exchange endpoint");
+            }
+            if (msalAccessTokenHeader.equalsIgnoreCase(lightTokenHeader)) {
+                throw new IllegalArgumentException("msal-exchange.msalAccessTokenHeader must be different from lightTokenHeader");
+            }
         }
     }
 
@@ -391,6 +431,38 @@ public class MsalExchangeConfig {
      */
     public void setLightTokenHeader(String lightTokenHeader) {
         this.lightTokenHeader = lightTokenHeader;
+    }
+
+    /**
+     * Gets the header used for the Azure MSAL access token on the exchange request.
+     * @return the MSAL access token header
+     */
+    public String getMsalAccessTokenHeader() {
+        return msalAccessTokenHeader;
+    }
+
+    /**
+     * Sets the header used for the Azure MSAL access token on the exchange request.
+     * @param msalAccessTokenHeader the MSAL access token header
+     */
+    public void setMsalAccessTokenHeader(String msalAccessTokenHeader) {
+        this.msalAccessTokenHeader = msalAccessTokenHeader;
+    }
+
+    /**
+     * Gets the HttpOnly cookie used to store the Azure MSAL access token.
+     * @return the MSAL access token cookie
+     */
+    public String getMsalAccessTokenCookie() {
+        return msalAccessTokenCookie;
+    }
+
+    /**
+     * Sets the HttpOnly cookie used to store the Azure MSAL access token.
+     * @param msalAccessTokenCookie the MSAL access token cookie
+     */
+    public void setMsalAccessTokenCookie(String msalAccessTokenCookie) {
+        this.msalAccessTokenCookie = msalAccessTokenCookie;
     }
 
     /**

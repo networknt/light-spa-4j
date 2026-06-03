@@ -109,8 +109,21 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 return;
             }
 
-            // --- Validate the incoming Microsoft Token ---
-            if(!verifyMicrosoftToken(exchange, microsoftToken, reqPath)) return;
+            // --- Validate the incoming Microsoft ID token ---
+            if(verifyMicrosoftToken(exchange, microsoftToken, reqPath) == null) return;
+
+            String msalAccessToken = null;
+            int msalAccessTokenMaxAge = config.getSessionTimeout();
+            if(config.isAzureMsalAuthorization()) {
+                msalAccessToken = bearerToken(exchange, config.getMsalAccessTokenHeader());
+                if (msalAccessToken == null) {
+                    setExchangeStatus(exchange, JWT_BEARER_TOKEN_MISSING);
+                    return;
+                }
+                JwtClaims msalAccessTokenClaims = verifyMicrosoftToken(exchange, msalAccessToken, reqPath);
+                if(msalAccessTokenClaims == null) return;
+                msalAccessTokenMaxAge = accessTokenCookieMaxAge(msalAccessTokenClaims, config);
+            }
 
             // --- Perform Token Exchange ---
             String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
@@ -128,6 +141,9 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
             // --- The setCookies logic is identical ---
             List<String> scopes = setCookies(exchange, result.getResult(), csrf, config);
+            if(msalAccessToken != null) {
+                setMsalAccessTokenCookie(exchange, msalAccessToken, msalAccessTokenMaxAge, config);
+            }
             if(logger.isTraceEnabled()) logger.trace("scopes = {}", scopes);
 
             exchange.setStatusCode(StatusCodes.OK);
@@ -146,12 +162,14 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler is called for subsequent request.");
             boolean hasSessionCookie = exchange.getRequestCookie(ACCESS_TOKEN) != null || exchange.getRequestCookie(REFRESH_TOKEN) != null;
             if(config.isAzureMsalAuthorization() && hasSessionCookie) {
-                String microsoftToken = bearerToken(exchange);
-                if (microsoftToken == null) {
+                Cookie msalAccessTokenCookie = exchange.getRequestCookie(config.getMsalAccessTokenCookie());
+                if (msalAccessTokenCookie == null || msalAccessTokenCookie.getValue() == null || msalAccessTokenCookie.getValue().trim().length() == 0) {
                     setExchangeStatus(exchange, JWT_BEARER_TOKEN_MISSING);
                     return;
                 }
-                if(!verifyMicrosoftToken(exchange, microsoftToken, reqPath)) return;
+                String msalAccessToken = msalAccessTokenCookie.getValue();
+                if(verifyMicrosoftToken(exchange, msalAccessToken, reqPath) == null) return;
+                injectMsalAuthorization(exchange, msalAccessToken);
             }
             String jwt = null;
             Cookie cookie = exchange.getRequestCookie(ACCESS_TOKEN);
@@ -225,7 +243,11 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     }
 
     private String bearerToken(final HttpServerExchange exchange) {
-        String authHeader = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
+        return bearerToken(exchange, Headers.AUTHORIZATION.toString());
+    }
+
+    private String bearerToken(final HttpServerExchange exchange, String headerName) {
+        String authHeader = exchange.getRequestHeaders().getFirst(headerName);
         if (authHeader == null) return null;
         int space = authHeader.indexOf(' ');
         if (space <= 0) return null;
@@ -235,7 +257,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         return token;
     }
 
-    private boolean verifyMicrosoftToken(final HttpServerExchange exchange, String microsoftToken, String reqPath) throws Exception {
+    private JwtClaims verifyMicrosoftToken(final HttpServerExchange exchange, String microsoftToken, String reqPath) throws Exception {
         if(msalJwtVerifier == null) {
             // handle case where config failed to load
             throw new Exception("MsalJwtVerifier is not initialized.");
@@ -244,13 +266,16 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             // We only need to verify it, we don't need the claims for much.
             // The second provider will do its own validation and claim mapping.
             // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
-            msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
-            return true;
+            return msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
         } catch (InvalidJwtException | VerificationException e) {
             logger.error("Microsoft token validation failed.", e);
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
-            return false;
+            return null;
         }
+    }
+
+    private void injectMsalAuthorization(final HttpServerExchange exchange, String microsoftToken) {
+        exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + microsoftToken);
     }
 
     private void injectLightOauthToken(final HttpServerExchange exchange, String jwt, MsalExchangeConfig config) {
@@ -281,6 +306,23 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             }
         }
         return jwt;
+    }
+
+    private int accessTokenCookieMaxAge(JwtClaims claims, MsalExchangeConfig config) throws Exception {
+        if(claims.getExpirationTime() == null) return config.getSessionTimeout();
+        long seconds = (claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis()) / 1000;
+        if(seconds <= 0) return config.getSessionTimeout();
+        return (int)Math.min(seconds, config.getSessionTimeout());
+    }
+
+    private void setMsalAccessTokenCookie(final HttpServerExchange exchange, String msalAccessToken, int maxAge, MsalExchangeConfig config) {
+        exchange.setResponseCookie(new CookieImpl(config.getMsalAccessTokenCookie(), msalAccessToken)
+                .setDomain(config.cookieDomain)
+                .setPath(config.getCookiePath())
+                .setMaxAge(maxAge)
+                .setHttpOnly(true)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                .setSecure(config.cookieSecure));
     }
 
     private void removeCookies(final HttpServerExchange exchange, MsalExchangeConfig config) {
@@ -376,6 +418,16 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     .setHttpOnly(false)
                     .setSecure(config.cookieSecure);
             exchange.setResponseCookie(eidCookie);
+        }
+        Cookie msalAccessTokenCookie = exchange.getRequestCookie(config.getMsalAccessTokenCookie());
+        if(msalAccessTokenCookie != null) {
+            msalAccessTokenCookie.setMaxAge(0)
+                    .setValue("")
+                    .setDomain(config.cookieDomain)
+                    .setPath(config.cookiePath)
+                    .setHttpOnly(true)
+                    .setSecure(config.cookieSecure);
+            exchange.setResponseCookie(msalAccessTokenCookie);
         }
     }
 
