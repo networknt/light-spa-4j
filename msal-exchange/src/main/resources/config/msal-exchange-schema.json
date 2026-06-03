@@ -44,6 +44,17 @@
       "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
       "default" : 604800,
       "format" : "int32"
+    },
+    "authorizationToken" : {
+      "type" : "string",
+      "description" : "Token to place in the downstream Authorization header. Supported values are light-oauth and azure-msal.",
+      "default" : "light-oauth",
+      "enum" : [ "light-oauth", "azure-msal" ]
+    },
+    "lightTokenHeader" : {
+      "type" : "string",
+      "description" : "Header used for the light-oauth token when authorizationToken is azure-msal.",
+      "default" : "X-Light-Token"
     }
   }
 }

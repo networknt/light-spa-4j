@@ -32,6 +32,11 @@ public class MsalExchangeConfig {
     private static final String COOKIE_SECURE = "cookieSecure";
     private static final String SESSION_TIMEOUT = "sessionTimeout";
     private static final String REMEMBER_ME_TIMEOUT = "rememberMeTimeout";
+    private static final String AUTHORIZATION_TOKEN = "authorizationToken";
+    private static final String LIGHT_TOKEN_HEADER = "lightTokenHeader";
+    public static final String AUTHORIZATION_TOKEN_LIGHT_OAUTH = "light-oauth";
+    public static final String AUTHORIZATION_TOKEN_AZURE_MSAL = "azure-msal";
+    public static final String DEFAULT_LIGHT_TOKEN_HEADER = "X-Light-Token";
 
     // --- Annotated Fields ---
     // --- Annotated Fields ---
@@ -103,6 +108,22 @@ public class MsalExchangeConfig {
             defaultValue = "604800"
     )
     int rememberMeTimeout;
+
+    @StringField(
+            configFieldName = AUTHORIZATION_TOKEN,
+            externalizedKeyName = AUTHORIZATION_TOKEN,
+            description = "Token to place in the downstream Authorization header. Supported values are light-oauth and azure-msal.",
+            defaultValue = AUTHORIZATION_TOKEN_LIGHT_OAUTH
+    )
+    String authorizationToken = AUTHORIZATION_TOKEN_LIGHT_OAUTH;
+
+    @StringField(
+            configFieldName = LIGHT_TOKEN_HEADER,
+            externalizedKeyName = LIGHT_TOKEN_HEADER,
+            description = "Header used for the light-oauth token when authorizationToken is azure-msal.",
+            defaultValue = DEFAULT_LIGHT_TOKEN_HEADER
+    )
+    String lightTokenHeader = DEFAULT_LIGHT_TOKEN_HEADER;
 
     // --- Constructor and Loading Logic ---
 
@@ -177,6 +198,29 @@ public class MsalExchangeConfig {
 
         object = mappedConfig.get(REMEMBER_ME_TIMEOUT);
         if (object != null) rememberMeTimeout = Config.loadIntegerValue(REMEMBER_ME_TIMEOUT, object);
+
+        object = mappedConfig.get(AUTHORIZATION_TOKEN);
+        if (object != null) authorizationToken = ((String) object).trim();
+
+        object = mappedConfig.get(LIGHT_TOKEN_HEADER);
+        if (object != null) lightTokenHeader = ((String) object).trim();
+
+        validateTokenPlacement();
+    }
+
+    private void validateTokenPlacement() {
+        if (authorizationToken == null || authorizationToken.trim().length() == 0) {
+            authorizationToken = AUTHORIZATION_TOKEN_LIGHT_OAUTH;
+        }
+        if (!AUTHORIZATION_TOKEN_LIGHT_OAUTH.equals(authorizationToken) && !AUTHORIZATION_TOKEN_AZURE_MSAL.equals(authorizationToken)) {
+            throw new IllegalArgumentException("msal-exchange.authorizationToken must be light-oauth or azure-msal");
+        }
+        if (lightTokenHeader == null || lightTokenHeader.trim().length() == 0) {
+            lightTokenHeader = DEFAULT_LIGHT_TOKEN_HEADER;
+        }
+        if (AUTHORIZATION_TOKEN_AZURE_MSAL.equals(authorizationToken) && "Authorization".equalsIgnoreCase(lightTokenHeader)) {
+            throw new IllegalArgumentException("msal-exchange.lightTokenHeader must not be Authorization when authorizationToken is azure-msal");
+        }
     }
 
     /**
@@ -315,5 +359,45 @@ public class MsalExchangeConfig {
      */
     public void setRememberMeTimeout(int rememberMeTimeout) {
         this.rememberMeTimeout = rememberMeTimeout;
+    }
+
+    /**
+     * Gets the token selected for the downstream Authorization header.
+     * @return light-oauth or azure-msal
+     */
+    public String getAuthorizationToken() {
+        return authorizationToken;
+    }
+
+    /**
+     * Sets the token selected for the downstream Authorization header.
+     * @param authorizationToken light-oauth or azure-msal
+     */
+    public void setAuthorizationToken(String authorizationToken) {
+        this.authorizationToken = authorizationToken;
+    }
+
+    /**
+     * Gets the header used for the light-oauth token in azure-msal placement.
+     * @return the light-oauth token header
+     */
+    public String getLightTokenHeader() {
+        return lightTokenHeader;
+    }
+
+    /**
+     * Sets the header used for the light-oauth token in azure-msal placement.
+     * @param lightTokenHeader the light-oauth token header
+     */
+    public void setLightTokenHeader(String lightTokenHeader) {
+        this.lightTokenHeader = lightTokenHeader;
+    }
+
+    /**
+     * Indicates if Azure MSAL should remain in the downstream Authorization header.
+     * @return true if azure-msal placement is enabled
+     */
+    public boolean isAzureMsalAuthorization() {
+        return AUTHORIZATION_TOKEN_AZURE_MSAL.equals(authorizationToken);
     }
 }

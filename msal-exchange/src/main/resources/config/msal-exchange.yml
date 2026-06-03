@@ -17,3 +17,7 @@ sessionTimeout: ${msal-exchange.sessionTimeout:3600}
 # Remember me timeout in seconds. This is the time after which the session will expire
 # if rememberMe is set true during login. Default is 604800 seconds (7 days).
 rememberMeTimeout: ${msal-exchange.rememberMeTimeout:604800}
+# Token to place in the downstream Authorization header. Supported values are light-oauth and azure-msal.
+authorizationToken: ${msal-exchange.authorizationToken:light-oauth}
+# Header used for the light-oauth token when authorizationToken is azure-msal.
+lightTokenHeader: ${msal-exchange.lightTokenHeader:X-Light-Token}

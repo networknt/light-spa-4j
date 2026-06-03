@@ -20,6 +20,7 @@ import io.undertow.server.handlers.Cookie;
 import io.undertow.server.handlers.CookieImpl;
 import io.undertow.server.handlers.CookieSameSiteMode;
 import io.undertow.util.Headers;
+import io.undertow.util.HttpString;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
@@ -102,28 +103,14 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             // token exchange request handling.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler exchange is called.");
 
-            String authHeader = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
-            if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            String microsoftToken = bearerToken(exchange);
+            if (microsoftToken == null) {
                 setExchangeStatus(exchange, JWT_BEARER_TOKEN_MISSING);
                 return;
             }
-            String microsoftToken = authHeader.substring(7);
 
             // --- Validate the incoming Microsoft Token ---
-            if(msalJwtVerifier == null) {
-                // handle case where config failed to load
-                throw new Exception("MsalJwtVerifier is not initialized.");
-            }
-            try {
-                // We only need to verify it, we don't need the claims for much.
-                // The second provider will do its own validation and claim mapping.
-                // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
-                msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
-            } catch (InvalidJwtException | VerificationException e) {
-                logger.error("Microsoft token validation failed.", e);
-                setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
-                return;
-            }
+            if(!verifyMicrosoftToken(exchange, microsoftToken, reqPath)) return;
 
             // --- Perform Token Exchange ---
             String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
@@ -157,6 +144,15 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         } else {
             // This is the subsequent request handling after the token exchange. Here we verify the JWT in the cookies.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler is called for subsequent request.");
+            boolean hasSessionCookie = exchange.getRequestCookie(ACCESS_TOKEN) != null || exchange.getRequestCookie(REFRESH_TOKEN) != null;
+            if(config.isAzureMsalAuthorization() && hasSessionCookie) {
+                String microsoftToken = bearerToken(exchange);
+                if (microsoftToken == null) {
+                    setExchangeStatus(exchange, JWT_BEARER_TOKEN_MISSING);
+                    return;
+                }
+                if(!verifyMicrosoftToken(exchange, microsoftToken, reqPath)) return;
+            }
             String jwt = null;
             Cookie cookie = exchange.getRequestCookie(ACCESS_TOKEN);
             if(cookie != null) {
@@ -218,13 +214,50 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
             if(logger.isTraceEnabled()) logger.trace("jwt = " + jwt);
-            if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
+            if(jwt != null) injectLightOauthToken(exchange, jwt, config);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
             // for example, in the light-portal command side, createUser doesn't need a token. let it go
             // to the service and an error will be back if the service does require a token.
             // don't call the next handler if the exchange is completed in renewToken when error occurs.
             if(!exchange.isComplete()) Handler.next(exchange, next);
+        }
+    }
+
+    private String bearerToken(final HttpServerExchange exchange) {
+        String authHeader = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
+        if (authHeader == null) return null;
+        int space = authHeader.indexOf(' ');
+        if (space <= 0) return null;
+        String scheme = authHeader.substring(0, space);
+        String token = authHeader.substring(space + 1).trim();
+        if (!"Bearer".equalsIgnoreCase(scheme) || token.length() == 0) return null;
+        return token;
+    }
+
+    private boolean verifyMicrosoftToken(final HttpServerExchange exchange, String microsoftToken, String reqPath) throws Exception {
+        if(msalJwtVerifier == null) {
+            // handle case where config failed to load
+            throw new Exception("MsalJwtVerifier is not initialized.");
+        }
+        try {
+            // We only need to verify it, we don't need the claims for much.
+            // The second provider will do its own validation and claim mapping.
+            // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
+            msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
+            return true;
+        } catch (InvalidJwtException | VerificationException e) {
+            logger.error("Microsoft token validation failed.", e);
+            setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
+            return false;
+        }
+    }
+
+    private void injectLightOauthToken(final HttpServerExchange exchange, String jwt, MsalExchangeConfig config) {
+        if(config.isAzureMsalAuthorization()) {
+            exchange.getRequestHeaders().put(new HttpString(config.getLightTokenHeader()), "Bearer " + jwt);
+        } else {
+            exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
         }
     }
 

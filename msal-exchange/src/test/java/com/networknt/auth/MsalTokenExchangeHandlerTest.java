@@ -177,7 +177,9 @@ public class MsalTokenExchangeHandlerTest {
                     exchange.getResponseSender().send("OK");
                 })
                 .add(Methods.GET, "/api", exchange -> {
-                    exchange.getResponseSender().send("OK");
+                    String authorization = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
+                    String lightToken = exchange.getRequestHeaders().getFirst("X-Light-Token");
+                    exchange.getResponseSender().send("Authorization=" + authorization + ";X-Light-Token=" + lightToken);
                 });
     }
 
@@ -361,6 +363,53 @@ public class MsalTokenExchangeHandlerTest {
 
         int statusCode = reference.get().getResponseCode();
         Assertions.assertEquals(StatusCodes.OK, statusCode);
+    }
+
+    @Test
+    public void testAzureMsalPlacementPreservesAuthorizationAndInjectsLightToken() throws Exception {
+        String testCsrf = "testCsrfValue123";
+        String lightJwt = getJwt(600, testCsrf);
+        String azureJwt = getJwt(600, "azureCsrfIgnored");
+        MsalExchangeConfig config = MsalExchangeConfig.load();
+        String originalAuthorizationToken = config.getAuthorizationToken();
+        String originalLightTokenHeader = config.getLightTokenHeader();
+        config.setAuthorizationToken(MsalExchangeConfig.AUTHORIZATION_TOKEN_AZURE_MSAL);
+        config.setLightTokenHeader(MsalExchangeConfig.DEFAULT_LIGHT_TOKEN_HEADER);
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final SimpleConnectionState.ConnectionToken connectionToken;
+
+        try {
+            connectionToken = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL, Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        } catch (Exception e) {
+            config.setAuthorizationToken(originalAuthorizationToken);
+            config.setLightTokenHeader(originalLightTokenHeader);
+            throw new ClientException(e);
+        }
+
+        final ClientConnection connection = (ClientConnection) connectionToken.getRawConnection();
+        final AtomicReference<ClientResponse> reference = new AtomicReference<>();
+        try {
+            ClientRequest request = new ClientRequest().setPath("/api").setMethod(Methods.GET);
+            request.getRequestHeaders().put(Headers.COOKIE, "accessToken=" + lightJwt);
+            request.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + azureJwt);
+            request.getRequestHeaders().put(new HttpString("X-CSRF-TOKEN"), testCsrf);
+            connection.sendRequest(request, client.createClientCallback(reference, latch));
+            Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS), "latch timed out waiting for response");
+        } catch (Exception e) {
+            logger.error("Exception: ", e);
+            throw new ClientException(e);
+        } finally {
+            config.setAuthorizationToken(originalAuthorizationToken);
+            config.setLightTokenHeader(originalLightTokenHeader);
+            client.restore(connectionToken);
+        }
+
+        int statusCode = reference.get().getResponseCode();
+        String body = reference.get().getAttachment(Http2Client.RESPONSE_BODY);
+        Assertions.assertEquals(StatusCodes.OK, statusCode);
+        Assertions.assertTrue(body.contains("Authorization=Bearer " + azureJwt));
+        Assertions.assertTrue(body.contains("X-Light-Token=Bearer " + lightJwt));
     }
 
     @Test
