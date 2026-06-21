@@ -43,8 +43,8 @@ import java.util.Map;
  */
 public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final Logger logger = LoggerFactory.getLogger(MsalTokenExchangeHandler.class);
-    private static final String JWT_BEARER_TOKEN_MISSING = "ERR11000"; // New error code
-    private static final String TOKEN_EXCHANGE_FAILED = "ERR11001"; // New error code
+    private static final String JWT_BEARER_TOKEN_MISSING = "ERR11647"; // New error code
+    private static final String TOKEN_EXCHANGE_FAILED = "ERR11648"; // New error code
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
     private static final String CSRF_HEADER_MISSING = "ERR10036";
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
