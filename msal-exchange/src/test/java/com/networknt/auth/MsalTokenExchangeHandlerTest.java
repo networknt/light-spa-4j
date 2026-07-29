@@ -227,12 +227,16 @@ public class MsalTokenExchangeHandlerTest {
     }
 
     @Test
-    public void testLegacyGetExchangeIsAcceptedAndObserved() throws Exception {
+    public void testLegacyGetExchangeIsRejectedAndObserved() throws Exception {
         long before = MsalTokenExchangeHandler.legacyGetCount("exchange");
         ClientResponse response = sendRequest(Methods.GET, "/auth/ms/exchange", null);
 
-        Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
-        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR11647"));
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
         Assertions.assertEquals(before + 1, MsalTokenExchangeHandler.legacyGetCount("exchange"));
     }
 
@@ -321,11 +325,15 @@ public class MsalTokenExchangeHandlerTest {
     }
 
     @Test
-    public void testLegacyGetLogoutIsAcceptedAndObserved() throws Exception {
+    public void testLegacyGetLogoutIsRejectedAndObserved() throws Exception {
         long before = MsalTokenExchangeHandler.legacyGetCount("logout");
         ClientResponse response = sendRequest(Methods.GET, "/auth/ms/logout", null);
 
-        Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
         Assertions.assertEquals(before + 1, MsalTokenExchangeHandler.legacyGetCount("logout"));
         Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
     }
@@ -335,7 +343,7 @@ public class MsalTokenExchangeHandlerTest {
         ClientResponse response = sendRequest(Methods.DELETE, "/auth/ms/logout", null);
 
         Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
-        Assertions.assertEquals("GET, POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
         Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
         Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
         Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
@@ -346,7 +354,7 @@ public class MsalTokenExchangeHandlerTest {
         ClientResponse response = sendRequest(Methods.DELETE, "/auth/ms/exchange", null);
 
         Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
-        Assertions.assertEquals("GET, POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
         Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
         Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
         Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
@@ -631,7 +639,7 @@ public class MsalTokenExchangeHandlerTest {
         final ClientConnection connection = (ClientConnection) connectionToken.getRawConnection();
         final AtomicReference<ClientResponse> reference = new AtomicReference<>();
         try {
-            ClientRequest request = new ClientRequest().setPath("/api/ms/exchange").setMethod(Methods.GET);
+            ClientRequest request = new ClientRequest().setPath("/api/ms/exchange").setMethod(Methods.POST);
             request.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + idJwt);
             request.getRequestHeaders().put(new HttpString(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_HEADER), "Bearer " + azureAccessJwt);
             connection.sendRequest(request, client.createClientCallback(reference, latch));

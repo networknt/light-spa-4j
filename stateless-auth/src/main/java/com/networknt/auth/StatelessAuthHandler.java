@@ -105,7 +105,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
     private static final String METHOD_NOT_ALLOWED = "ERR10008";
     private static final String CACHE_CONTROL_NO_STORE = "no-store";
-    private static final String COMPATIBILITY_ALLOW = "GET, POST";
+    private static final String POST_ONLY_ALLOW = Methods.POST_STRING;
     private static final AtomicLong LEGACY_LOGOUT_GET_COUNT = new AtomicLong();
     private static final AtomicLong LOGOUT_CSRF_WOULD_REJECT_COUNT = new AtomicLong();
 
@@ -279,10 +279,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 logger.warn("Deprecated SPA auth endpoint remains in use: runtime=stateless-auth, " +
                         "endpoint=logout, method=GET, count={}", count);
             }
-            return true;
+            rejectMethod(exchange, POST_ONLY_ALLOW);
+            return false;
         }
         if(Methods.POST.equals(exchange.getRequestMethod())) return true;
-        rejectMethod(exchange, COMPATIBILITY_ALLOW);
+        rejectMethod(exchange, POST_ONLY_ALLOW);
         return false;
     }
 

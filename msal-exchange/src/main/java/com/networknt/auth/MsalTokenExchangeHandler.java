@@ -54,7 +54,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String LOGOUT_CSRF_INVALID = "ERR11649";
     private static final String METHOD_NOT_ALLOWED = "ERR10008";
     private static final String CACHE_CONTROL_NO_STORE = "no-store";
-    private static final String COMPATIBILITY_ALLOW = "GET, POST";
+    private static final String POST_ONLY_ALLOW = Methods.POST_STRING;
 
     private static final AtomicLong LEGACY_EXCHANGE_GET_COUNT = new AtomicLong();
     private static final AtomicLong LEGACY_LOGOUT_GET_COUNT = new AtomicLong();
@@ -116,9 +116,8 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 return;
             }
             markNoStore(exchange);
-            if(Methods.GET.equals(exchange.getRequestMethod())) {
-                recordLegacyGet(endpoint);
-            } else if(!Methods.POST.equals(exchange.getRequestMethod())) {
+            if(!Methods.POST.equals(exchange.getRequestMethod())) {
+                if(Methods.GET.equals(exchange.getRequestMethod())) recordLegacyGet(endpoint);
                 rejectMethod(exchange);
                 return;
             }
@@ -275,7 +274,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     }
 
     private void rejectMethod(HttpServerExchange exchange) {
-        exchange.getResponseHeaders().put(Headers.ALLOW, COMPATIBILITY_ALLOW);
+        exchange.getResponseHeaders().put(Headers.ALLOW, POST_ONLY_ALLOW);
         setExchangeStatus(exchange, METHOD_NOT_ALLOWED,
                 exchange.getRequestMethod().toString(), exchange.getRelativePath());
     }

@@ -399,11 +399,16 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
-    public void testLegacyGetLogoutIsAcceptedAndObserved() throws Exception {
+    public void testLegacyGetLogoutIsRejectedAndObserved() throws Exception {
         long before = StatelessAuthHandler.legacyLogoutGetCount();
         ClientResponse response = sendRequest(Methods.GET, "/logout");
 
-        Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
         Assertions.assertEquals(before + 1, StatelessAuthHandler.legacyLogoutGetCount());
     }
 
@@ -412,7 +417,7 @@ public class StatelessAuthHandlerTest {
         ClientResponse response = sendRequest(Methods.DELETE, "/logout");
 
         Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
-        Assertions.assertEquals("GET, POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
         Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
         Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
         Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
