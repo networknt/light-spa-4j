@@ -51,12 +51,14 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String CSRF_HEADER_MISSING = "ERR10036";
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
+    private static final String LOGOUT_CSRF_INVALID = "ERR11649";
     private static final String METHOD_NOT_ALLOWED = "ERR10008";
     private static final String CACHE_CONTROL_NO_STORE = "no-store";
     private static final String COMPATIBILITY_ALLOW = "GET, POST";
 
     private static final AtomicLong LEGACY_EXCHANGE_GET_COUNT = new AtomicLong();
     private static final AtomicLong LEGACY_LOGOUT_GET_COUNT = new AtomicLong();
+    private static final AtomicLong LOGOUT_CSRF_WOULD_REJECT_COUNT = new AtomicLong();
 
     private static final String ACCESS_TOKEN = "accessToken";
     private static final String REFRESH_TOKEN = "refreshToken";
@@ -177,6 +179,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         } else if (endpoint == MsalEndpoint.LOGOUT) {
             // logout request handling, this is the same as StatelessAuthHandler to remove the cookies.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler logout is called.");
+            if(!validateLogoutCsrf(exchange, config)) return;
             removeCookies(exchange, config);
             exchange.setStatusCode(StatusCodes.NO_CONTENT);
             exchange.endExchange();
@@ -297,6 +300,40 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     static long legacyGetCount(String endpoint) {
         return "exchange".equals(endpoint)
                 ? LEGACY_EXCHANGE_GET_COUNT.get() : LEGACY_LOGOUT_GET_COUNT.get();
+    }
+
+    static long logoutCsrfWouldRejectCount() {
+        return LOGOUT_CSRF_WOULD_REJECT_COUNT.get();
+    }
+
+    private boolean validateLogoutCsrf(HttpServerExchange exchange, MsalExchangeConfig config) {
+        if(!hasOwnedSessionCookie(exchange, config)) return true;
+
+        String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
+        Cookie cookie = exchange.getRequestCookie(Constants.CSRF);
+        boolean headerMissing = headerCsrf == null || headerCsrf.trim().isEmpty();
+        boolean cookieInvalid = cookie == null || cookie.getValue() == null
+                || !cookie.getValue().equals(headerCsrf);
+        if(!headerMissing && !cookieInvalid) return true;
+
+        long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
+        String failure = headerMissing ? "header_missing" : "cookie_invalid";
+        logger.info("event=spa_auth_logout_csrf_would_reject runtime=msal-exchange endpoint=logout " +
+                        "failure={} enforced={} count={} counterScope=process reset=process_restart",
+                failure, config.isLogoutCsrfEnforced(), count);
+        if(!config.isLogoutCsrfEnforced()) return true;
+
+        setExchangeStatus(exchange, headerMissing ? CSRF_HEADER_MISSING : LOGOUT_CSRF_INVALID);
+        return false;
+    }
+
+    private boolean hasOwnedSessionCookie(HttpServerExchange exchange, MsalExchangeConfig config) {
+        for(String name : new String[]{ACCESS_TOKEN, REFRESH_TOKEN, Constants.CSRF, USER_ID, USER_TYPE,
+                Constants.ROLES, Constants.HOST, Constants.EMAIL, Constants.EID,
+                config.getMsalAccessTokenCookie()}) {
+            if(exchange.getRequestCookie(name) != null) return true;
+        }
+        return false;
     }
 
     private String bearerToken(final HttpServerExchange exchange) {

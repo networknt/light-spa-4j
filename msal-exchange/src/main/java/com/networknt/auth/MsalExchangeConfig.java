@@ -27,6 +27,7 @@ public class MsalExchangeConfig {
     private static final String ENABLED = "enabled";
     private static final String EXCHANGE_PATH = "exchangePath";
     private static final String LOGOUT_PATH = "logoutPath";
+    private static final String LOGOUT_CSRF_ENFORCED = "logoutCsrfEnforced";
     private static final String COOKIE_DOMAIN = "cookieDomain";
     private static final String COOKIE_PATH = "cookiePath";
     private static final String COOKIE_SECURE = "cookieSecure";
@@ -70,6 +71,14 @@ public class MsalExchangeConfig {
             defaultValue = "/auth/ms/logout"
     )
     String logoutPath;
+
+    @BooleanField(
+            configFieldName = LOGOUT_CSRF_ENFORCED,
+            externalizedKeyName = LOGOUT_CSRF_ENFORCED,
+            description = "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
+            defaultValue = "false"
+    )
+    boolean logoutCsrfEnforced;
 
     @StringField(
             configFieldName = COOKIE_DOMAIN,
@@ -204,6 +213,9 @@ public class MsalExchangeConfig {
         object = mappedConfig.get(LOGOUT_PATH);
         if (object != null) logoutPath = (String) object;
 
+        object = mappedConfig.get(LOGOUT_CSRF_ENFORCED);
+        if (object != null) logoutCsrfEnforced = Config.loadBooleanValue(LOGOUT_CSRF_ENFORCED, object);
+
         object = mappedConfig.get(COOKIE_DOMAIN);
         if (object != null) cookieDomain = (String) object;
 
@@ -319,6 +331,14 @@ public class MsalExchangeConfig {
      */
     public void setLogoutPath(String logoutPath) {
         this.logoutPath = logoutPath;
+    }
+
+    public boolean isLogoutCsrfEnforced() {
+        return logoutCsrfEnforced;
+    }
+
+    public void setLogoutCsrfEnforced(boolean logoutCsrfEnforced) {
+        this.logoutCsrfEnforced = logoutCsrfEnforced;
     }
 
     /**

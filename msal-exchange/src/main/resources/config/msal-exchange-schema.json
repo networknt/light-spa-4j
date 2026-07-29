@@ -18,6 +18,11 @@
       "description" : "The logout path can remain the same.",
       "default" : "/auth/ms/logout"
     },
+    "logoutCsrfEnforced" : {
+      "type" : "boolean",
+      "description" : "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
+      "default" : false
+    },
     "cookieDomain" : {
       "type" : "string",
       "description" : "The domain to use for the session cookie.",

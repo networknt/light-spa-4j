@@ -5,6 +5,8 @@ enabled: ${msal-exchange.enabled:true}
 exchangePath: ${msal-exchange.exchangePath:/auth/ms/exchange}
 # The logout path can remain the same.
 logoutPath: ${msal-exchange.logoutPath:/auth/ms/logout}
+# Enforce double-submit CSRF validation for logout after observe-only qualification.
+logoutCsrfEnforced: ${msal-exchange.logoutCsrfEnforced:false}
 # The domain to use for the session cookie.
 cookieDomain: ${msal-exchange.cookieDomain:localhost}
 # The path to use for the session cookie.

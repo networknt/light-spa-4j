@@ -4,6 +4,7 @@ import com.networknt.client.Http2Client;
 import com.networknt.client.simplepool.SimpleConnectionState;
 import com.networknt.config.Config;
 import com.networknt.exception.ClientException;
+import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.security.KeyUtil;
 import io.undertow.Handlers;
 import io.undertow.Undertow;
@@ -255,6 +256,71 @@ public class MsalTokenExchangeHandlerTest {
     }
 
     @Test
+    public void testLogoutCsrfObserveOnlyCountsWouldRejectAndStillClearsCookies() throws Exception {
+        MsalExchangeConfig config = MsalExchangeConfig.load();
+        boolean original = config.isLogoutCsrfEnforced();
+        Assertions.assertFalse(original, "shipped default must remain observe-only");
+        config.setLogoutCsrfEnforced(false);
+        try {
+            long before = MsalTokenExchangeHandler.logoutCsrfWouldRejectCount();
+            ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", "accessToken=expired");
+
+            Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+            Assertions.assertEquals(before + 1, MsalTokenExchangeHandler.logoutCsrfWouldRejectCount());
+            Assertions.assertNotNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        } finally {
+            config.setLogoutCsrfEnforced(original);
+        }
+    }
+
+    @Test
+    public void testLogoutCsrfMatchingValuesAllowExpiredSessionCleanup() throws Exception {
+        MsalExchangeConfig config = MsalExchangeConfig.load();
+        boolean original = config.isLogoutCsrfEnforced();
+        config.setLogoutCsrfEnforced(true);
+        try {
+            long before = MsalTokenExchangeHandler.logoutCsrfWouldRejectCount();
+            ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout",
+                    "accessToken=expired; csrf=matching", "matching");
+
+            Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+            Assertions.assertEquals(before, MsalTokenExchangeHandler.logoutCsrfWouldRejectCount());
+            Assertions.assertNotNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        } finally {
+            config.setLogoutCsrfEnforced(original);
+        }
+    }
+
+    @Test
+    public void testLogoutCsrfEnforcementSeparatesMissingHeaderFromInvalidCookie() throws Exception {
+        MsalExchangeConfig config = MsalExchangeConfig.load();
+        boolean original = config.isLogoutCsrfEnforced();
+        config.setLogoutCsrfEnforced(true);
+        try {
+            ClientResponse missingHeader = sendRequest(Methods.POST, "/auth/ms/logout",
+                    "accessToken=expired");
+            Assertions.assertEquals(StatusCodes.BAD_REQUEST, missingHeader.getResponseCode());
+            Assertions.assertTrue(missingHeader.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10036"));
+            Assertions.assertNull(missingHeader.getResponseHeaders().get(Headers.SET_COOKIE));
+
+            ClientResponse missingCookie = sendRequest(Methods.POST, "/auth/ms/logout",
+                    "accessToken=expired", "header-secret");
+            ClientResponse mismatch = sendRequest(Methods.POST, "/auth/ms/logout",
+                    "accessToken=expired; csrf=cookie-secret", "header-secret");
+            Assertions.assertEquals(StatusCodes.BAD_REQUEST, missingCookie.getResponseCode());
+            Assertions.assertEquals(StatusCodes.BAD_REQUEST, mismatch.getResponseCode());
+            Assertions.assertEquals(missingCookie.getAttachment(Http2Client.RESPONSE_BODY),
+                    mismatch.getAttachment(Http2Client.RESPONSE_BODY));
+            Assertions.assertTrue(mismatch.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR11649"));
+            Assertions.assertFalse(mismatch.getAttachment(Http2Client.RESPONSE_BODY).contains("header-secret"));
+            Assertions.assertFalse(mismatch.getAttachment(Http2Client.RESPONSE_BODY).contains("cookie-secret"));
+            Assertions.assertNull(mismatch.getResponseHeaders().get(Headers.SET_COOKIE));
+        } finally {
+            config.setLogoutCsrfEnforced(original);
+        }
+    }
+
+    @Test
     public void testLegacyGetLogoutIsAcceptedAndObserved() throws Exception {
         long before = MsalTokenExchangeHandler.legacyGetCount("logout");
         ClientResponse response = sendRequest(Methods.GET, "/auth/ms/logout", null);
@@ -309,6 +375,10 @@ public class MsalTokenExchangeHandlerTest {
     }
 
     private ClientResponse sendRequest(HttpString method, String path, String cookie) throws Exception {
+        return sendRequest(method, path, cookie, null);
+    }
+
+    private ClientResponse sendRequest(HttpString method, String path, String cookie, String csrf) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientResponse> reference = new AtomicReference<>();
         SimpleConnectionState.ConnectionToken token = client.borrow(
@@ -319,6 +389,7 @@ public class MsalTokenExchangeHandlerTest {
             ClientRequest request = new ClientRequest().setPath(path).setMethod(method);
             request.getRequestHeaders().put(Headers.HOST, "localhost");
             if (cookie != null) request.getRequestHeaders().put(Headers.COOKIE, cookie);
+            if (csrf != null) request.getRequestHeaders().put(HttpStringConstants.CSRF_TOKEN, csrf);
             connection.sendRequest(request, client.createClientCallback(reference, latch));
             Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS), "latch timed out waiting for response");
             return reference.get();

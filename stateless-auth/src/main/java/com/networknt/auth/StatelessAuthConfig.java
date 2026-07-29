@@ -34,6 +34,7 @@ public class StatelessAuthConfig {
     private static final String ENABLE_HTTP2 = "enableHttp2";
     private static final String AUTH_PATH = "authPath";
     private static final String LOGOUT_PATH = "logoutPath";
+    private static final String LOGOUT_CSRF_ENFORCED = "logoutCsrfEnforced";
     private static final String COOKIE_DOMAIN = "cookieDomain";
     private static final String COOKIE_PATH = "cookiePath";
     private static final String COOKIE_TIMEOUT_URI = "cookieTimeoutUri";
@@ -104,6 +105,14 @@ public class StatelessAuthConfig {
             defaultValue = "/logout"
     )
     String logoutPath;
+
+    @BooleanField(
+            configFieldName = LOGOUT_CSRF_ENFORCED,
+            externalizedKeyName = LOGOUT_CSRF_ENFORCED,
+            description = "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
+            defaultValue = "false"
+    )
+    boolean logoutCsrfEnforced;
 
     @StringField(
             configFieldName = COOKIE_DOMAIN,
@@ -301,6 +310,9 @@ public class StatelessAuthConfig {
         object = mappedConfig.get(LOGOUT_PATH);
         if (object != null) logoutPath = (String)object;
 
+        object = mappedConfig.get(LOGOUT_CSRF_ENFORCED);
+        if (object != null) logoutCsrfEnforced = Config.loadBooleanValue(LOGOUT_CSRF_ENFORCED, object);
+
         object = mappedConfig.get(COOKIE_DOMAIN);
         if (object != null) cookieDomain = (String)object;
 
@@ -439,6 +451,14 @@ public class StatelessAuthConfig {
 
     public void setLogoutPath(String logoutPath) {
         this.logoutPath = logoutPath;
+    }
+
+    public boolean isLogoutCsrfEnforced() {
+        return logoutCsrfEnforced;
+    }
+
+    public void setLogoutCsrfEnforced(boolean logoutCsrfEnforced) {
+        this.logoutCsrfEnforced = logoutCsrfEnforced;
     }
 
     public String getGooglePath() {

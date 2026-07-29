@@ -33,6 +33,11 @@
       "description" : "Request path for the logout handling to remove HttpOnly access-token and other cookies.",
       "default" : "/logout"
     },
+    "logoutCsrfEnforced" : {
+      "type" : "boolean",
+      "description" : "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
+      "default" : false
+    },
     "cookieDomain" : {
       "type" : "string",
       "description" : "Cookie domain which is the original site.",
