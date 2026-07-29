@@ -34,6 +34,7 @@ import io.undertow.server.handlers.Cookie;
 import io.undertow.server.handlers.CookieImpl;
 import io.undertow.server.handlers.CookieSameSiteMode;
 import io.undertow.util.Headers;
+import io.undertow.util.Methods;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * This is a handler that receives authorization code from OAuth 2.0 provider with authorization grant type.
@@ -100,6 +102,10 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCP = "scp";
     private static final String ROLE = "role";
     private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
+    private static final String METHOD_NOT_ALLOWED = "ERR10008";
+    private static final String CACHE_CONTROL_NO_STORE = "no-store";
+    private static final String COMPATIBILITY_ALLOW = "GET, POST";
+    private static final AtomicLong LEGACY_LOGOUT_GET_COUNT = new AtomicLong();
 
     static SecurityConfig securityConfig;
     static JwtVerifier jwtVerifier;
@@ -123,6 +129,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getAuthPath());
 
         if(exchange.getRelativePath().equals(config.getAuthPath())) {
+            if(!requireCallbackGet(exchange)) return;
             // first time authentication and return both access and refresh tokens in cookies
             Deque<String> codeDeque = exchange.getQueryParameters().get(CODE);
             String code = codeDeque == null ? null : codeDeque.getFirst();
@@ -164,7 +171,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 exchange.endExchange();
             }
         } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
+            if(!requireLogoutMethod(exchange)) return;
             removeCookies(exchange, config);
+            exchange.setStatusCode(StatusCodes.NO_CONTENT);
             exchange.endExchange();
         } else {
             // first get the jwt token from httpOnly cookie sent by first step authentication
@@ -240,6 +249,54 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         }
     }
 
+    protected boolean requireCallbackGet(HttpServerExchange exchange) throws Exception {
+        if(Methods.OPTIONS.equals(exchange.getRequestMethod())) {
+            Handler.next(exchange, next);
+            return false;
+        }
+        markNoStore(exchange);
+        if(!Methods.GET.equals(exchange.getRequestMethod())) {
+            rejectMethod(exchange, Methods.GET_STRING);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean requireLogoutMethod(HttpServerExchange exchange) throws Exception {
+        if(Methods.OPTIONS.equals(exchange.getRequestMethod())) {
+            Handler.next(exchange, next);
+            return false;
+        }
+        markNoStore(exchange);
+        if(Methods.GET.equals(exchange.getRequestMethod())) {
+            long count = LEGACY_LOGOUT_GET_COUNT.incrementAndGet();
+            logger.info("event=spa_auth_legacy_method runtime=stateless-auth endpoint=logout " +
+                    "method=GET count={} counterScope=process reset=process_restart", count);
+            if((count & (count - 1)) == 0) {
+                logger.warn("Deprecated SPA auth endpoint remains in use: runtime=stateless-auth, " +
+                        "endpoint=logout, method=GET, count={}", count);
+            }
+            return true;
+        }
+        if(Methods.POST.equals(exchange.getRequestMethod())) return true;
+        rejectMethod(exchange, COMPATIBILITY_ALLOW);
+        return false;
+    }
+
+    private void rejectMethod(HttpServerExchange exchange, String allow) {
+        exchange.getResponseHeaders().put(Headers.ALLOW, allow);
+        setExchangeStatus(exchange, METHOD_NOT_ALLOWED,
+                exchange.getRequestMethod().toString(), exchange.getRelativePath());
+    }
+
+    private void markNoStore(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, CACHE_CONTROL_NO_STORE);
+    }
+
+    static long legacyLogoutGetCount() {
+        return LEGACY_LOGOUT_GET_COUNT.get();
+    }
+
     private String renewToken(HttpServerExchange exchange, Cookie cookie, StatelessAuthConfig config) throws Exception {
         String jwt = null;
         if(cookie != null) {
@@ -262,100 +319,27 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     }
 
     private void removeCookies(final HttpServerExchange exchange, StatelessAuthConfig config) {
-        // first get the cookie from the request.
-        Cookie accessTokenCookie = exchange.getRequestCookie(ACCESS_TOKEN);
-        if(accessTokenCookie != null) {
-            accessTokenCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(accessTokenCookie);
-        }
-        Cookie refreshTokenCookie = exchange.getRequestCookie(REFRESH_TOKEN);
-        if(refreshTokenCookie != null) {
-            refreshTokenCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(refreshTokenCookie);
-        }
-        Cookie csrfCookie = exchange.getRequestCookie(Constants.CSRF);
-        if(csrfCookie != null) {
-            csrfCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(csrfCookie);
-        }
-        // remove userId
-        Cookie userIdCookie = exchange.getRequestCookie(USER_ID);
-        if(userIdCookie != null) {
-            userIdCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
+        clearCookie(exchange, ACCESS_TOKEN, true, config);
+        clearCookie(exchange, REFRESH_TOKEN, true, config);
+        clearCookie(exchange, Constants.CSRF, false, config);
+        clearCookie(exchange, USER_ID, false, config);
+        clearCookie(exchange, USER_TYPE, false, config);
+        clearCookie(exchange, Constants.ROLES, false, config);
+        clearCookie(exchange, Constants.HOST, false, config);
+        clearCookie(exchange, Constants.EMAIL, false, config);
+        clearCookie(exchange, Constants.EID, false, config);
+    }
 
-            exchange.setResponseCookie(userIdCookie);
-        }
-        Cookie userTypeCookie = exchange.getRequestCookie(USER_TYPE);
-        if(userTypeCookie != null) {
-            userTypeCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(userTypeCookie);
-        }
-        Cookie rolesCookie = exchange.getRequestCookie(Constants.ROLES);
-        if(rolesCookie != null) {
-            rolesCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(rolesCookie);
-        }
-        Cookie hostCookie = exchange.getRequestCookie(Constants.HOST);
-        if(hostCookie != null) {
-            hostCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(hostCookie);
-        }
-        Cookie emailCookie = exchange.getRequestCookie(Constants.EMAIL);
-        if(emailCookie != null) {
-            emailCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(emailCookie);
-        }
-        Cookie eidCookie = exchange.getRequestCookie(Constants.EID);
-        if(eidCookie != null) {
-            eidCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(eidCookie);
-        }
-
+    private void clearCookie(HttpServerExchange exchange, String name, boolean httpOnly,
+                             StatelessAuthConfig config) {
+        // Emit every owned deletion cookie even when it was absent from the request, matching Rust.
+        exchange.setResponseCookie(new CookieImpl(name, "")
+                .setMaxAge(0)
+                .setDomain(config.cookieDomain)
+                .setPath(config.cookiePath)
+                .setHttpOnly(httpOnly)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                .setSecure(config.cookieSecure));
     }
 
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, StatelessAuthConfig config) throws Exception {

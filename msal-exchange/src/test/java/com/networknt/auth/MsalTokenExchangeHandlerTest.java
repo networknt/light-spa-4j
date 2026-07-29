@@ -12,7 +12,6 @@ import io.undertow.client.ClientConnection;
 import io.undertow.client.ClientRequest;
 import io.undertow.client.ClientResponse;
 import io.undertow.server.HttpHandler;
-import io.undertow.server.RoutingHandler;
 import io.undertow.util.Headers;
 import io.undertow.util.HttpString;
 import io.undertow.util.Methods;
@@ -171,16 +170,18 @@ public class MsalTokenExchangeHandlerTest {
         }
     }
 
-    static RoutingHandler getTestHandler() {
-        return Handlers.routing()
-                .add(Methods.GET, "/authorization", exchange -> {
-                    exchange.getResponseSender().send("OK");
-                })
-                .add(Methods.GET, "/api", exchange -> {
-                    String authorization = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
-                    String lightToken = exchange.getRequestHeaders().getFirst("X-Light-Token");
-                    exchange.getResponseSender().send("Authorization=" + authorization + ";X-Light-Token=" + lightToken);
-                });
+    static HttpHandler getTestHandler() {
+        return exchange -> {
+            exchange.getResponseHeaders().put(new HttpString("X-Test-Next"), "true");
+            if("/api".equals(exchange.getRequestPath())) {
+                String authorization = exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION);
+                String lightToken = exchange.getRequestHeaders().getFirst("X-Light-Token");
+                exchange.getResponseSender().send("Authorization=" + authorization + ";X-Light-Token=" + lightToken);
+            } else {
+                exchange.setStatusCode(StatusCodes.NO_CONTENT);
+                exchange.endExchange();
+            }
+        };
     }
 
     @Test
@@ -195,7 +196,7 @@ public class MsalTokenExchangeHandlerTest {
         try {
             connectionToken = client.borrow(new URI("https://localhost:7080"), Http2Client.WORKER, client.getDefaultXnioSsl(), Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
             ClientConnection connection = (ClientConnection) connectionToken.getRawConnection();
-            ClientRequest request = new ClientRequest().setPath(requestUri).setMethod(Methods.GET);
+            ClientRequest request = new ClientRequest().setPath(requestUri).setMethod(Methods.POST);
             //customized header parameters
             request.getRequestHeaders().put(new HttpString("host"), "localhost");
             // please replace the following with your own bearer token from microsoft identity platform.
@@ -213,6 +214,117 @@ public class MsalTokenExchangeHandlerTest {
         Assertions.assertEquals(200, statusCode);
         logger.debug("response body = " + body);
         Assertions.assertTrue(body.indexOf("scopes") > 0);
+    }
+
+    @Test
+    public void testPostExchangeWithoutBearerUsesExchangeContract() throws Exception {
+        ClientResponse response = sendRequest(Methods.POST, "/auth/ms/exchange", null);
+
+        Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR11647"));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+    }
+
+    @Test
+    public void testLegacyGetExchangeIsAcceptedAndObserved() throws Exception {
+        long before = MsalTokenExchangeHandler.legacyGetCount("exchange");
+        ClientResponse response = sendRequest(Methods.GET, "/auth/ms/exchange", null);
+
+        Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR11647"));
+        Assertions.assertEquals(before + 1, MsalTokenExchangeHandler.legacyGetCount("exchange"));
+    }
+
+    @Test
+    public void testPostLogoutIsIdempotentNoContentAndClearsOwnedCookies() throws Exception {
+        ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", null);
+
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+        Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CONTENT_TYPE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CONTENT_LENGTH));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        String body = response.getAttachment(Http2Client.RESPONSE_BODY);
+        Assertions.assertTrue(body == null || body.isEmpty());
+        List<String> cookies = response.getResponseHeaders().get(Headers.SET_COOKIE);
+        for (String name : Arrays.asList("accessToken", "refreshToken", "csrf", "userId", "userType",
+                "roles", "host", "email", "eid", MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_COOKIE)) {
+            Assertions.assertTrue(cookies.stream().anyMatch(value -> value.startsWith(name + "=")
+                            && value.contains("Expires=Thu, 01-Jan-1970 00:00:00 GMT")),
+                    "missing deletion cookie for " + name + " in " + cookies);
+        }
+    }
+
+    @Test
+    public void testLegacyGetLogoutIsAcceptedAndObserved() throws Exception {
+        long before = MsalTokenExchangeHandler.legacyGetCount("logout");
+        ClientResponse response = sendRequest(Methods.GET, "/auth/ms/logout", null);
+
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+        Assertions.assertEquals(before + 1, MsalTokenExchangeHandler.legacyGetCount("logout"));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+    }
+
+    @Test
+    public void testWrongMethodIsStructuredAndDoesNotReachNextHandler() throws Exception {
+        ClientResponse response = sendRequest(Methods.DELETE, "/auth/ms/logout", null);
+
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("GET, POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+    }
+
+    @Test
+    public void testWrongExchangeMethodHasNoCookieSideEffects() throws Exception {
+        ClientResponse response = sendRequest(Methods.DELETE, "/auth/ms/exchange", null);
+
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("GET, POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+    }
+
+    @Test
+    public void testOptionsPassesThroughWithoutStampingAuthResponseHeaders() throws Exception {
+        for(String path : Arrays.asList("/auth/ms/exchange", "/auth/ms/logout")) {
+            ClientResponse response = sendRequest(Methods.OPTIONS, path, null);
+
+            Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+            Assertions.assertEquals("true", response.getResponseHeaders().getFirst("X-Test-Next"));
+            Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        }
+    }
+
+    @Test
+    public void testWrongPathContinuesToNextHandler() throws Exception {
+        ClientResponse response = sendRequest(Methods.GET, "/api", null);
+
+        Assertions.assertEquals(StatusCodes.OK, response.getResponseCode());
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).startsWith("Authorization="));
+        Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+    }
+
+    private ClientResponse sendRequest(HttpString method, String path, String cookie) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<ClientResponse> reference = new AtomicReference<>();
+        SimpleConnectionState.ConnectionToken token = client.borrow(
+                new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL,
+                Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        try {
+            ClientConnection connection = (ClientConnection) token.getRawConnection();
+            ClientRequest request = new ClientRequest().setPath(path).setMethod(method);
+            request.getRequestHeaders().put(Headers.HOST, "localhost");
+            if (cookie != null) request.getRequestHeaders().put(Headers.COOKIE, cookie);
+            connection.sendRequest(request, client.createClientCallback(reference, latch));
+            Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS), "latch timed out waiting for response");
+            return reference.get();
+        } finally {
+            client.restore(token);
+        }
     }
 
     private static String getJwt(int expiredInSeconds, String csrfToken) throws Exception {

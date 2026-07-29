@@ -37,6 +37,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
         StatelessAuthConfig config = StatelessAuthConfig.load();
         // This handler only cares about /google path. Pass to the next handler if path is not matched.
         if(exchange.getRelativePath().equals(config.getFacebookPath())) {
+            if(!requireCallbackGet(exchange)) return;
             Deque<String> deque = exchange.getQueryParameters().get(ACCESS_TOKEN);
             String accessToken = deque == null ? null : deque.getFirst();
             if (logger.isDebugEnabled()) logger.debug("access_token = " + accessToken);

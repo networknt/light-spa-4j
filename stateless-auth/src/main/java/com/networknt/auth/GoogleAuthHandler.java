@@ -32,6 +32,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
         if (logger.isDebugEnabled())
             logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getGooglePath());
         if(exchange.getRelativePath().equals(config.getGooglePath())) {
+            if(!requireCallbackGet(exchange)) return;
             Deque<String> deque = exchange.getQueryParameters().get(CODE);
             String code = deque == null ? null : deque.getFirst();
             if (logger.isDebugEnabled()) logger.debug("auth code = {}", code);

@@ -21,6 +21,7 @@ import io.undertow.server.handlers.CookieImpl;
 import io.undertow.server.handlers.CookieSameSiteMode;
 import io.undertow.util.Headers;
 import io.undertow.util.HttpString;
+import io.undertow.util.Methods;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
@@ -34,6 +35,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Handler for MSAL token exchange.
@@ -49,6 +51,12 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String CSRF_HEADER_MISSING = "ERR10036";
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
+    private static final String METHOD_NOT_ALLOWED = "ERR10008";
+    private static final String CACHE_CONTROL_NO_STORE = "no-store";
+    private static final String COMPATIBILITY_ALLOW = "GET, POST";
+
+    private static final AtomicLong LEGACY_EXCHANGE_GET_COUNT = new AtomicLong();
+    private static final AtomicLong LEGACY_LOGOUT_GET_COUNT = new AtomicLong();
 
     private static final String ACCESS_TOKEN = "accessToken";
     private static final String REFRESH_TOKEN = "refreshToken";
@@ -99,7 +107,21 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         MsalExchangeConfig config = MsalExchangeConfig.load();
         String reqPath = exchange.getRequestPath();
-        if (exchange.getRelativePath().equals(config.getExchangePath())) {
+        MsalEndpoint endpoint = classifyEndpoint(exchange.getRelativePath(), config);
+        if(endpoint != MsalEndpoint.OTHER) {
+            if(Methods.OPTIONS.equals(exchange.getRequestMethod())) {
+                Handler.next(exchange, next);
+                return;
+            }
+            markNoStore(exchange);
+            if(Methods.GET.equals(exchange.getRequestMethod())) {
+                recordLegacyGet(endpoint);
+            } else if(!Methods.POST.equals(exchange.getRequestMethod())) {
+                rejectMethod(exchange);
+                return;
+            }
+        }
+        if (endpoint == MsalEndpoint.EXCHANGE) {
             // token exchange request handling.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler exchange is called.");
 
@@ -152,10 +174,11 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             Map<String, Object> rs = new HashMap<>();
             rs.put(SCOPES, scopes);
             exchange.getResponseSender().send(JsonMapper.toJson(rs));
-        } else if (exchange.getRelativePath().equals(config.getLogoutPath())) {
+        } else if (endpoint == MsalEndpoint.LOGOUT) {
             // logout request handling, this is the same as StatelessAuthHandler to remove the cookies.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler logout is called.");
             removeCookies(exchange, config);
+            exchange.setStatusCode(StatusCodes.NO_CONTENT);
             exchange.endExchange();
         } else {
             // This is the subsequent request handling after the token exchange. Here we verify the JWT in the cookies.
@@ -242,6 +265,40 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         }
     }
 
+    private MsalEndpoint classifyEndpoint(String relativePath, MsalExchangeConfig config) {
+        if (relativePath.equals(config.getExchangePath())) return MsalEndpoint.EXCHANGE;
+        if (relativePath.equals(config.getLogoutPath())) return MsalEndpoint.LOGOUT;
+        return MsalEndpoint.OTHER;
+    }
+
+    private void rejectMethod(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.ALLOW, COMPATIBILITY_ALLOW);
+        setExchangeStatus(exchange, METHOD_NOT_ALLOWED,
+                exchange.getRequestMethod().toString(), exchange.getRelativePath());
+    }
+
+    private void markNoStore(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, CACHE_CONTROL_NO_STORE);
+    }
+
+    private void recordLegacyGet(MsalEndpoint endpoint) {
+        AtomicLong counter = endpoint == MsalEndpoint.EXCHANGE
+                ? LEGACY_EXCHANGE_GET_COUNT : LEGACY_LOGOUT_GET_COUNT;
+        long count = counter.incrementAndGet();
+        logger.info("event=spa_auth_legacy_method runtime=msal-exchange endpoint={} " +
+                        "method=GET count={} counterScope=process reset=process_restart",
+                endpoint.telemetryName, count);
+        if((count & (count - 1)) == 0) {
+            logger.warn("Deprecated MSAL endpoint method observed: endpoint={}, method=GET, count={}",
+                    endpoint.telemetryName, count);
+        }
+    }
+
+    static long legacyGetCount(String endpoint) {
+        return "exchange".equals(endpoint)
+                ? LEGACY_EXCHANGE_GET_COUNT.get() : LEGACY_LOGOUT_GET_COUNT.get();
+    }
+
     private String bearerToken(final HttpServerExchange exchange) {
         return bearerToken(exchange, Headers.AUTHORIZATION.toString());
     }
@@ -326,109 +383,28 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     }
 
     private void removeCookies(final HttpServerExchange exchange, MsalExchangeConfig config) {
-        // first get the cookie from the request.
-        Cookie accessTokenCookie = exchange.getRequestCookie(ACCESS_TOKEN);
-        if(accessTokenCookie != null) {
-            accessTokenCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(accessTokenCookie);
-        }
-        Cookie refreshTokenCookie = exchange.getRequestCookie(REFRESH_TOKEN);
-        if(refreshTokenCookie != null) {
-            refreshTokenCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(refreshTokenCookie);
-        }
-        Cookie csrfCookie = exchange.getRequestCookie(Constants.CSRF);
-        if(csrfCookie != null) {
-            csrfCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(csrfCookie);
-        }
-        // remove userId
-        Cookie userIdCookie = exchange.getRequestCookie(USER_ID);
-        if(userIdCookie != null) {
-            userIdCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
+        clearCookie(exchange, ACCESS_TOKEN, true, config);
+        clearCookie(exchange, REFRESH_TOKEN, true, config);
+        clearCookie(exchange, Constants.CSRF, false, config);
+        clearCookie(exchange, USER_ID, false, config);
+        clearCookie(exchange, USER_TYPE, false, config);
+        clearCookie(exchange, Constants.ROLES, false, config);
+        clearCookie(exchange, Constants.HOST, false, config);
+        clearCookie(exchange, Constants.EMAIL, false, config);
+        clearCookie(exchange, Constants.EID, false, config);
+        clearCookie(exchange, config.getMsalAccessTokenCookie(), true, config);
+    }
 
-            exchange.setResponseCookie(userIdCookie);
-        }
-        Cookie userTypeCookie = exchange.getRequestCookie(USER_TYPE);
-        if(userTypeCookie != null) {
-            userTypeCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(userTypeCookie);
-        }
-        Cookie rolesCookie = exchange.getRequestCookie(Constants.ROLES);
-        if(rolesCookie != null) {
-            rolesCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(rolesCookie);
-        }
-        Cookie hostCookie = exchange.getRequestCookie(Constants.HOST);
-        if(hostCookie != null) {
-            hostCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(hostCookie);
-        }
-        Cookie emailCookie = exchange.getRequestCookie(Constants.EMAIL);
-        if(emailCookie != null) {
-            emailCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(emailCookie);
-        }
-        Cookie eidCookie = exchange.getRequestCookie(Constants.EID);
-        if(eidCookie != null) {
-            eidCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(false)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(eidCookie);
-        }
-        Cookie msalAccessTokenCookie = exchange.getRequestCookie(config.getMsalAccessTokenCookie());
-        if(msalAccessTokenCookie != null) {
-            msalAccessTokenCookie.setMaxAge(0)
-                    .setValue("")
-                    .setDomain(config.cookieDomain)
-                    .setPath(config.cookiePath)
-                    .setHttpOnly(true)
-                    .setSecure(config.cookieSecure);
-            exchange.setResponseCookie(msalAccessTokenCookie);
-        }
+    private void clearCookie(HttpServerExchange exchange, String name, boolean httpOnly,
+                             MsalExchangeConfig config) {
+        // Emit every owned deletion cookie even when it was absent from the request, matching Rust.
+        exchange.setResponseCookie(new CookieImpl(name, "")
+                .setMaxAge(0)
+                .setDomain(config.cookieDomain)
+                .setPath(config.cookiePath)
+                .setHttpOnly(httpOnly)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                .setSecure(config.cookieSecure));
     }
 
     /**
@@ -570,6 +546,16 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     @Override
     public boolean isEnabled() {
         return MsalExchangeConfig.load().isEnabled();
+    }
+
+    private enum MsalEndpoint {
+        EXCHANGE("exchange"), LOGOUT("logout"), OTHER("other");
+
+        private final String telemetryName;
+
+        MsalEndpoint(String telemetryName) {
+            this.telemetryName = telemetryName;
+        }
     }
 
 }

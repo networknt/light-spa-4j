@@ -28,7 +28,6 @@ import io.undertow.client.ClientConnection;
 import io.undertow.client.ClientRequest;
 import io.undertow.client.ClientResponse;
 import io.undertow.server.HttpHandler;
-import io.undertow.server.RoutingHandler;
 import io.undertow.util.Headers;
 import io.undertow.util.HttpString;
 import io.undertow.util.Methods;
@@ -92,10 +91,28 @@ public class StatelessAuthHandlerTest {
 
         if(authServer == null) {
             logger.info("starting server");
-            HttpHandler handler = getTestHandler();
+            HttpHandler next = getTestHandler();
             StatelessAuthHandler statelessAuthHandler = new StatelessAuthHandler();
-            statelessAuthHandler.setNext(handler);
-            handler = statelessAuthHandler;
+            statelessAuthHandler.setNext(next);
+            GoogleAuthHandler googleAuthHandler = new GoogleAuthHandler();
+            googleAuthHandler.setNext(next);
+            FacebookAuthHandler facebookAuthHandler = new FacebookAuthHandler();
+            facebookAuthHandler.setNext(next);
+            GithubAuthHandler githubAuthHandler = new GithubAuthHandler();
+            githubAuthHandler.setNext(next);
+            HttpHandler handler = exchange -> {
+                StatelessAuthConfig config = StatelessAuthConfig.load();
+                String path = exchange.getRequestPath();
+                if(path.equals(config.getGooglePath())) {
+                    googleAuthHandler.handleRequest(exchange);
+                } else if(path.equals(config.getFacebookPath())) {
+                    facebookAuthHandler.handleRequest(exchange);
+                } else if(path.equals(config.getGithubPath())) {
+                    githubAuthHandler.handleRequest(exchange);
+                } else {
+                    statelessAuthHandler.handleRequest(exchange);
+                }
+            };
             authServer = Undertow.builder()
                     .addHttpsListener(7080, "localhost", sslContext)
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
@@ -196,18 +213,21 @@ public class StatelessAuthHandlerTest {
         }
     }
 
-    static RoutingHandler getTestHandler() {
-        return Handlers.routing()
-                .add(Methods.GET, "/authorization", exchange -> {
+    static HttpHandler getTestHandler() {
+        return exchange -> {
+            exchange.getResponseHeaders().put(new HttpString("X-Test-Next"), "true");
+            if("/api".equals(exchange.getRequestPath())) {
                     exchange.getResponseSender().send("OK");
-                })
-                .add(Methods.GET, "/api", exchange -> {
-                    exchange.getResponseSender().send("OK");
-                });
+            } else {
+                exchange.setStatusCode(StatusCodes.NO_CONTENT);
+                exchange.endExchange();
+            }
+        };
     }
 
     @Test
     public void testAuthWithCode() throws Exception {
+        long legacyLogoutGetsBefore = StatelessAuthHandler.legacyLogoutGetCount();
         final Http2Client client = Http2Client.getInstance();
         final CountDownLatch latch = new CountDownLatch(1);
         final SimpleConnectionState.ConnectionToken token;
@@ -252,6 +272,7 @@ public class StatelessAuthHandlerTest {
             }
         }
         Assertions.assertTrue(rolesCookieFound);
+        Assertions.assertEquals(legacyLogoutGetsBefore, StatelessAuthHandler.legacyLogoutGetCount());
     }
 
     @Test
@@ -291,6 +312,105 @@ public class StatelessAuthHandlerTest {
         Assertions.assertEquals(400, statusCode);
         Assertions.assertTrue(body.contains("ERR10035"));
 
+    }
+
+    @Test
+    public void testPostLogoutIsIdempotentNoContentAndClearsOwnedCookies() throws Exception {
+        ClientResponse response = sendRequest(Methods.POST, "/logout");
+
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+        Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CONTENT_TYPE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CONTENT_LENGTH));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        String body = response.getAttachment(Http2Client.RESPONSE_BODY);
+        Assertions.assertTrue(body == null || body.isEmpty());
+        List<String> cookies = response.getResponseHeaders().get(Headers.SET_COOKIE);
+        for (String name : Arrays.asList("accessToken", "refreshToken", "csrf", "userId", "userType",
+                "roles", "host", "email", "eid")) {
+            Assertions.assertTrue(cookies.stream().anyMatch(value -> value.startsWith(name + "=")
+                            && value.contains("Expires=Thu, 01-Jan-1970 00:00:00 GMT")),
+                    "missing deletion cookie for " + name + " in " + cookies);
+        }
+    }
+
+    @Test
+    public void testLegacyGetLogoutIsAcceptedAndObserved() throws Exception {
+        long before = StatelessAuthHandler.legacyLogoutGetCount();
+        ClientResponse response = sendRequest(Methods.GET, "/logout");
+
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+        Assertions.assertEquals(before + 1, StatelessAuthHandler.legacyLogoutGetCount());
+    }
+
+    @Test
+    public void testWrongLogoutMethodIsStructuredAndHasNoSideEffects() throws Exception {
+        ClientResponse response = sendRequest(Methods.DELETE, "/logout");
+
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("GET, POST", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10008"));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+    }
+
+    @Test
+    public void testOptionsPassesThroughWithoutStampingAuthResponseHeaders() throws Exception {
+        for(String path : Arrays.asList("/authorization", "/logout", "/google", "/facebook", "/github")) {
+            ClientResponse response = sendRequest(Methods.OPTIONS, path);
+
+            Assertions.assertEquals(StatusCodes.NO_CONTENT, response.getResponseCode());
+            Assertions.assertEquals("true", response.getResponseHeaders().getFirst("X-Test-Next"));
+            Assertions.assertNull(response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        }
+    }
+
+    @Test
+    public void testSocialCallbacksRemainGetOnly() throws Exception {
+        long legacyLogoutGetsBefore = StatelessAuthHandler.legacyLogoutGetCount();
+        for(String path : Arrays.asList("/google", "/facebook", "/github")) {
+            ClientResponse post = sendRequest(Methods.POST, path);
+            Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, post.getResponseCode(), path);
+            Assertions.assertEquals("GET", post.getResponseHeaders().getFirst(Headers.ALLOW), path);
+            Assertions.assertEquals("no-store", post.getResponseHeaders().getFirst(Headers.CACHE_CONTROL), path);
+            Assertions.assertNull(post.getResponseHeaders().get(Headers.SET_COOKIE), path);
+            Assertions.assertNull(post.getResponseHeaders().getFirst("X-Test-Next"), path);
+
+            ClientResponse get = sendRequest(Methods.GET, path);
+            Assertions.assertEquals(StatusCodes.BAD_REQUEST, get.getResponseCode(), path);
+            Assertions.assertTrue(get.getAttachment(Http2Client.RESPONSE_BODY).contains("ERR10035"), path);
+            Assertions.assertNull(get.getResponseHeaders().get(Headers.SET_COOKIE), path);
+        }
+        Assertions.assertEquals(legacyLogoutGetsBefore, StatelessAuthHandler.legacyLogoutGetCount());
+    }
+
+    @Test
+    public void testAuthorizationCallbackRemainsGetOnly() throws Exception {
+        ClientResponse response = sendRequest(Methods.POST, "/authorization?code=abc");
+
+        Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, response.getResponseCode());
+        Assertions.assertEquals("GET", response.getResponseHeaders().getFirst(Headers.ALLOW));
+        Assertions.assertEquals("no-store", response.getResponseHeaders().getFirst(Headers.CACHE_CONTROL));
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+    }
+
+    private ClientResponse sendRequest(HttpString method, String path) throws Exception {
+        final Http2Client client = Http2Client.getInstance();
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<ClientResponse> reference = new AtomicReference<>();
+        final SimpleConnectionState.ConnectionToken token = client.borrow(
+                new URI("https://localhost:7080"), Http2Client.WORKER, Http2Client.SSL,
+                Http2Client.BUFFER_POOL, OptionMap.create(UndertowOptions.ENABLE_HTTP2, true));
+        try {
+            ClientConnection connection = (ClientConnection) token.getRawConnection();
+            ClientRequest request = new ClientRequest().setPath(path).setMethod(method);
+            request.getRequestHeaders().put(Headers.HOST, "localhost");
+            connection.sendRequest(request, client.createClientCallback(reference, latch));
+            Assertions.assertTrue(latch.await(10, TimeUnit.SECONDS), "latch timed out waiting for response");
+        } finally {
+            client.restore(token);
+        }
+        return reference.get();
     }
 
     private static String getJwt(int expiredInSeconds, String csrfToken) throws Exception {

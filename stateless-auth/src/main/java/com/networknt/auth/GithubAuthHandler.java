@@ -20,6 +20,7 @@ public class GithubAuthHandler extends StatelessAuthHandler implements Middlewar
         // This handler only cares about /google path. Pass to the next handler if path is not matched.
         StatelessAuthConfig config = StatelessAuthConfig.load();
         if (exchange.getRelativePath().equals(config.getGithubPath())) {
+            if(!requireCallbackGet(exchange)) return;
             Deque<String> deque = exchange.getQueryParameters().get(CODE);
             String code = deque == null ? null : deque.getFirst();
             if (logger.isDebugEnabled()) logger.debug("code = " + code);
