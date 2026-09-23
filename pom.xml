@@ -120,6 +120,7 @@
     <modules>
         <module>stateless-auth</module>
         <module>msal-exchange</module>
+        <module>msal-auth</module>
     </modules>
 
     <dependencyManagement>
@@ -135,6 +136,12 @@
             <dependency>
                 <groupId>com.networknt</groupId>
                 <artifactId>stateless-auth</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <dependency>
+                <groupId>com.networknt</groupId>
+                <artifactId>msal-auth</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

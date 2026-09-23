@@ -1,0 +1,9 @@
+enabled: true
+loginPath: /auth/ms/login
+logoutPath: /auth/ms/logout
+logoutCsrfEnforced: true
+cookieDomain: localhost
+cookiePath: /
+cookieSecure: false
+sessionTimeout: 3600
+cookieSameSite: Lax

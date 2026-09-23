@@ -1,0 +1,18 @@
+enableVerifyJwt: true
+enableVerifySwt: false
+enableExtractScopeToken: false
+enableVerifyScope: false
+skipVerifyScopeWithoutSpec: true
+ignoreJwtExpiry: false
+enableH2c: false
+enableMockJwt: false
+enableRelaxedKeyValidation: false
+jwt:
+  certificate: {}
+  clockSkewInSeconds: 60
+  keyResolver: JsonWebKeySet
+logJwtToken: false
+logClientUserScope: false
+enableJwtCache: false
+jwtCacheFullSize: 100
+bootstrapFromKeyService: false

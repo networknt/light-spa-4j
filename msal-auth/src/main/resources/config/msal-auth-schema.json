@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": ["enabled", "loginPath", "logoutPath", "cookieDomain", "cookiePath", "cookieSecure", "sessionTimeout", "cookieSameSite"],
+  "properties": {
+    "enabled": {"type": "boolean", "default": true},
+    "loginPath": {"type": "string", "default": "/auth/ms/login"},
+    "logoutPath": {"type": "string", "default": "/auth/ms/logout"},
+    "logoutCsrfEnforced": {"type": "boolean", "default": false},
+    "cookieDomain": {"type": "string", "default": "localhost"},
+    "cookiePath": {"type": "string", "default": "/"},
+    "cookieSecure": {"type": "boolean", "default": false},
+    "sessionTimeout": {"type": "integer", "format": "int32", "minimum": 1, "default": 3600},
+    "cookieSameSite": {"type": "string", "enum": ["Strict", "Lax", "None"], "default": "None"}
+  }
+}

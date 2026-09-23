@@ -1,0 +1,10 @@
+# Direct MSAL BFF authentication without light-oauth token exchange.
+enabled: true
+loginPath: /auth/ms/login
+logoutPath: /auth/ms/logout
+logoutCsrfEnforced: false
+cookieDomain: localhost
+cookiePath: /
+cookieSecure: false
+sessionTimeout: 3600
+cookieSameSite: None

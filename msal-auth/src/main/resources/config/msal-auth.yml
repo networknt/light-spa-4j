@@ -1,0 +1,10 @@
+# Direct MSAL BFF authentication without light-oauth token exchange.
+enabled: ${msal-auth.enabled:true}
+loginPath: ${msal-auth.loginPath:/auth/ms/login}
+logoutPath: ${msal-auth.logoutPath:/auth/ms/logout}
+logoutCsrfEnforced: ${msal-auth.logoutCsrfEnforced:false}
+cookieDomain: ${msal-auth.cookieDomain:localhost}
+cookiePath: ${msal-auth.cookiePath:/}
+cookieSecure: ${msal-auth.cookieSecure:false}
+sessionTimeout: ${msal-auth.sessionTimeout:3600}
+cookieSameSite: ${msal-auth.cookieSameSite:None}
