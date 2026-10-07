@@ -1,5 +1,26 @@
 # Change Log
 
+## [2.4.0](https://github.com/networknt/light-spa-4j/tree/2.4.0) (2026-10-07)
+
+**Commits:**
+
+- upgrade to version 2.4.0 before release in master branch ([3392d92](https://github.com/networknt/light-spa-4j/commit/3392d9234d56892aa07467723f74265e78c8a2fc)) (by Steve Hu)
+- upgrade maven-javadoc to 3.12.0 from 3.4.1 ([f4e3104](https://github.com/networknt/light-spa-4j/commit/f4e31040c6ff0c1f994a72481f443672336fbccf)) (by Steve Hu)
+- upgrade maven-version to 2.22.0 from 2.4 ([edb43b2](https://github.com/networknt/light-spa-4j/commit/edb43b2dea370bd1f309a98b3c9ff2e4187a35dc)) (by Steve Hu)
+- upgrade slf4j to 2.0.20 from 2.0.19 ([c09eda7](https://github.com/networknt/light-spa-4j/commit/c09eda7ba2b416defae87b95d2028d1f5eee3887)) (by Steve Hu)
+- upgrade jose4j to 0.9.7 from 0.9.6 ([b56da30](https://github.com/networknt/light-spa-4j/commit/b56da3021e1798fdba68460124a5211ed462b793)) (by Steve Hu)
+- upgrade jackson to 2.22.3 from 2.22.1 ([a911caf](https://github.com/networknt/light-spa-4j/commit/a911caf8f16a0d70dd0e0fdf5e6a726c3f960959)) (by Steve Hu)
+- upgrade to version 2.3.8-SNAPSHOT after release in master branch ([5ae16d3](https://github.com/networknt/light-spa-4j/commit/5ae16d3a0c3b6e8d9f37ab7536745804068c1f9c)) (by Steve Hu)
+- upgrade slf4j to 2.0.19 from 2.0.17 ([939879a](https://github.com/networknt/light-spa-4j/commit/939879a39faaa61d98f33f9d59a085af9153193b)) (by Steve Hu)
+- upgrade maven-surefire to 3.6.0 ([54e1276](https://github.com/networknt/light-spa-4j/commit/54e1276370e2447ef62f1c8ad08ea8758d7994d8)) (by Steve Hu)
+- upgrade caffeine to 3.2.4 from 3.3.0 ([49f7341](https://github.com/networknt/light-spa-4j/commit/49f734166c5d3bfea91dd7ec296a80365a4711fe)) (by Steve Hu)
+- fixes #169 Add Java msal-auth handler with Rust light-gateway parity ([3f5cde1](https://github.com/networknt/light-spa-4j/commit/3f5cde13004dbd63566e86375df6a406a3c6463d)) (by Steve Hu)
+- upgrade logback to 1.6.3 from 1.5.37 ([1fca6e5](https://github.com/networknt/light-spa-4j/commit/1fca6e5784a9bd91d9233295af16de10cf17bb27)) (by Steve Hu)
+- upgrade version.caffeine to 3.2.4 from 3.2.0 ([45a23d3](https://github.com/networknt/light-spa-4j/commit/45a23d3057ff8d9061030ced33880606f02c1b0d)) (by Steve Hu)
+- Remove obsolete javadoc-packagelist-maven-plugin workaround ([03774d5](https://github.com/networknt/light-spa-4j/commit/03774d5a8c29e6ade7b2cb0947bc898d3dbb8d04)) (by Steve Hu)
+- upgrade central-publishing-maven to 0.11.0 from 0.7.0 ([20bf6d6](https://github.com/networknt/light-spa-4j/commit/20bf6d6537df57f8a76e7fa19f1d075711d17d6d)) (by Steve Hu)
+- upgrade to version 2.3.8-SNAPSHOT after release in master branch ([b9acd9f](https://github.com/networknt/light-spa-4j/commit/b9acd9fefebc7273cf46fd4940b3ca7d7313fbeb)) (by Steve Hu)
+
 ## [2.3.7](https://github.com/networknt/light-spa-4j/tree/2.3.7) (2026-08-12)
 
 
