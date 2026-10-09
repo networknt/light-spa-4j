@@ -46,7 +46,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
                 return;
             }
-            FacebookClient fbClient = new DefaultFacebookClient(accessToken, Version.VERSION_3_1);
+            FacebookClient fbClient = new DefaultFacebookClient(accessToken, Version.VERSION_26_0);
             User me = fbClient.fetchObject("me", User.class, Parameter.with("fields", "id,name,email,first_name,last_name,verified"));
             if (me != null) {
                 String email = me.getEmail();
