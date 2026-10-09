@@ -29,6 +29,7 @@ import io.undertow.client.ClientConnection;
 import io.undertow.client.ClientRequest;
 import io.undertow.client.ClientResponse;
 import io.undertow.server.HttpHandler;
+import io.undertow.util.Cookies;
 import io.undertow.util.Headers;
 import io.undertow.util.HttpString;
 import io.undertow.util.Methods;
@@ -264,10 +265,7 @@ public class StatelessAuthHandlerTest {
         for(String s: values) {
             if(s.contains("roles=")) {
                 rolesCookieFound = true;
-                // extract value and decode
-                int start = s.indexOf("roles=");
-                int end = s.indexOf(";", start);
-                String value = s.substring(start + 6, end);
+                String value = Cookies.parseSetCookieHeader(s).getValue();
                 String decoded = new String(java.util.Base64.getDecoder().decode(value), java.nio.charset.StandardCharsets.UTF_8);
                 Assertions.assertEquals("user admin", decoded);
             }
