@@ -109,7 +109,7 @@
         <version.google-api>2.6.0</version.google-api>
         <version.google-client>1.44.2</version.google-client>
         <version.facebook>3.9.0</version.facebook>
-        <version.redisson>3.45.1</version.redisson>
+        <version.redisson>4.8.0</version.redisson>
         <versions.maven-version>2.22.0</versions.maven-version>
         <version.maven-javadoc>3.12.0</version.maven-javadoc>
         <version.nexus-staging-maven>1.7.0</version.nexus-staging-maven>
