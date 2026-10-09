@@ -65,9 +65,11 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
             }
             try {
                 GoogleSignInChallenge.Challenge challenge = CHALLENGES.issue(currentUser,
-                        exchange.getSourceAddress().getAddress().getHostAddress());
+                        GoogleChallengeSource.address(exchange, gis));
                 nonceCookie(exchange, challenge.id(), challenge.nonce(), 300);
                 json(exchange, Map.of("nonce", challenge.nonce(), "challengeId", challenge.id()));
+            } catch (IllegalArgumentException exception) {
+                reject(exchange, 400, "GOOGLE_PROXY_ADDRESS_REJECTED");
             } catch (GoogleSignInChallenge.RateLimited exception) {
                 exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "300");
                 reject(exchange, 429, "GOOGLE_CHALLENGE_RATE_LIMITED");
