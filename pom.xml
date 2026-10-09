@@ -106,8 +106,6 @@
         <version.undertow>2.4.4.Final</version.undertow>
         <version.snakeyaml>2.7</version.snakeyaml>
         <version.caffeine>3.3.0</version.caffeine>
-        <version.google-api>2.9.1</version.google-api>
-        <version.google-client>2.2.0</version.google-client>
         <version.facebook>2026.9.0</version.facebook>
         <version.redisson>4.8.0</version.redisson>
         <versions.maven-version>2.22.0</versions.maven-version>
@@ -244,16 +242,6 @@
                 <groupId>com.github.ben-manes.caffeine</groupId>
                 <artifactId>caffeine</artifactId>
                 <version>${version.caffeine}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.google.api-client</groupId>
-                <artifactId>google-api-client</artifactId>
-                <version>${version.google-api}</version>
-            </dependency>
-            <dependency>
-                <groupId>com.google.http-client</groupId>
-                <artifactId>google-http-client-jackson2</artifactId>
-                <version>${version.google-client}</version>
             </dependency>
             <dependency>
                 <groupId>com.restfb</groupId>

@@ -1,0 +1,33 @@
+# Google Identity Services sign-in
+
+Google now uses the GIS ID-token flow. The handler verifies RS256 signatures against Google's fixed HTTPS JWKS endpoint, issuer, audience, authorized party, expiration, issued-at, verified email and a server-issued nonce. The Google API client and Jackson HTTP client dependencies are removed. The old Google authorization-code callback is disabled; `googleClientSecret` and `googleRedirectUri` are retained configuration fields but are ignored by this flow.
+
+Deploy with the matching login-view and light-portal changes:
+
+- https://github.com/lightapi/login-view/issues/17
+- https://github.com/lightapi/light-portal/issues/865
+
+Configure `google-sign-in.yml` with `allowedOrigin` equal to the exact HTTPS login-view origin, without a trailing slash, and `portalCommandUrl` equal to the HTTPS Portal command endpoint (for example `https://portal.example/portal/command`). Blank `allowedOrigin` disables Google sign-in. A blank command URL uses existing command-service discovery. Set `statelessAuth.googleClientId` to the same OAuth web client ID used by GIS. Configure the bootstrap service token with the Portal-approved client ID, signed host and dedicated `portal.google-identity.w` scope. Never put that token in the browser.
+
+Route `/google` and `/google/link` to `GoogleAuthHandler`. The login origin needs credentialed CORS for POST/OPTIONS, `Content-Type`, and an exact `Access-Control-Allow-Origin` (never `*`). Existing CORS middleware handles OPTIONS. Only the configured Origin may issue challenges or submit credentials.
+
+The browser POSTs `?challenge=1` to obtain a five-minute nonce and its Secure, HttpOnly, SameSite=None `__Host-google_signin_nonce_<challengeId>` cookie. It passes the nonce to GIS, then POSTs JSON `{ "credential": "<ID token>", "state": "<Portal state>", "challengeId": "<challenge ID>" }` to the same endpoint. Tokens never belong in URLs or logs. Nonces are consumed once, including failed verification, and the cookie is deleted. This in-memory nonce store requires sticky routing between challenge and callback; restarts require a fresh challenge. Browsers blocking third-party cookies may require hosting login-view on the same site as Portal.
+
+`/google/link` requires an existing, unexpired, verified Portal access-token cookie. The challenge is bound to that Portal UUID, and linking preserves its identity and permissions without issuing a replacement session. The user must explicitly visit login-view with `?link_google=1` after signing in to Portal. Email matches never link accounts automatically. Google-subject bindings determine subsequent sign-in and retain the stored Portal email. New registration is allowed only for Gmail or a verified Google Workspace hosted domain; other Google emails must link an existing account.
+
+Apply the Portal binding migration and configure the Portal gateway audit actor before enabling the paired browser and gateway changes. Local tests use signed fixtures, an HTTP callback server and mocked identity/OAuth services; they are not evidence of a live Google login or deployed CORS/cookie behavior.
+
+The challenge response includes `nonce` and a 22-character `challengeId`. Each attempt has its own `__Host-google_signin_nonce_<challengeId>` cookie, so tabs do not overwrite each other. Callbacks must include `challengeId` with `credential` and `state`; only that cookie is consumed and cleared. Issuance is limited to 32 challenges per source address per five minutes, even when attempts are consumed, and returns 429 with Retry-After. Expiry cleanup visits the expired insertion-order prefix and uses a monotonic clock. The global 10,000-entry bound remains defense in depth. Direct connections use the peer IP and ignore forwarding headers. Reverse-proxy deployments must configure `google-sign-in.trustedProxyAddresses` and have those proxies set/append `X-Forwarded-For`; the gateway walks trusted hops from right to left and rates the nearest untrusted address. Shared NAT sources share the limit; distributed floods still require ingress protection. The store remains per-JVM and requires sticky routing; restart loses pending attempts. An HMAC-only cookie would not preserve single-use replay rejection.
+
+Session issuance sends the resolved Portal UUID and stored user type to `client_authenticated_user`. Linking reads the verified `uid` claim. Portal service-token authentication failures are outages (503), separate from account conflicts (409) or unavailable accounts (403). Empty redirect configuration produces a successful empty response; failed JWT validation retains its error response. Contract tests exercise actual Java OAuth serialization, JWT verification and cookie issuance against a local TLS fixture implementing the current light-oauth contract; they do not run the Rust server.
+
+### Trusted proxy configuration
+
+For example, when the immediate proxy is `10.0.0.10` and an upstream trusted load balancer is `10.0.0.11`, configure:
+
+```yaml
+# values.yml
+google-sign-in.trustedProxyAddresses: "10.0.0.10,10.0.0.11"
+```
+
+Use exact numeric IP addresses (IPv4 or IPv6), not hostnames or broad client networks. The default is empty: no forwarding headers are trusted. Each trusted proxy must overwrite or append the actual connecting peer to `X-Forwarded-For`; ingress must prevent callers from impersonating a trusted peer. Caller-supplied prefixes to the left of the nearest untrusted hop are ignored. A trusted peer without a usable forwarding chain receives 400 without consuming a proxy-wide challenge budget. Invalid allowlist configuration disables challenge issuance with 503. `Forwarded` and arbitrary alternative headers are not read. Keep ingress rate limits for distributed floods.

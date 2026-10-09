@@ -1,0 +1,7 @@
+# Exact login-view origin; blank disables Google sign-in. Never use a wildcard.
+allowedOrigin: ${google-sign-in.allowedOrigin:}
+# Optional fixed HTTPS RPC endpoint. Otherwise use Portal command service discovery.
+portalCommandUrl: ${google-sign-in.portalCommandUrl:}
+# Comma-separated numeric addresses of trusted reverse proxies; blank trusts none.
+# These peers must set/append X-Forwarded-For and ingress must prevent direct bypass.
+trustedProxyAddresses: ${google-sign-in.trustedProxyAddresses:}

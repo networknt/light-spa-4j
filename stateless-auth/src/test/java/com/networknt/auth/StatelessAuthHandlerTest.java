@@ -436,7 +436,7 @@ public class StatelessAuthHandlerTest {
     @Test
     public void testSocialCallbacksRemainGetOnly() throws Exception {
         long legacyLogoutGetsBefore = StatelessAuthHandler.legacyLogoutGetCount();
-        for(String path : Arrays.asList("/google", "/facebook", "/github")) {
+        for(String path : Arrays.asList("/facebook", "/github")) {
             ClientResponse post = sendRequest(Methods.POST, path);
             Assertions.assertEquals(StatusCodes.METHOD_NOT_ALLOWED, post.getResponseCode(), path);
             Assertions.assertEquals("GET", post.getResponseHeaders().getFirst(Headers.ALLOW), path);
