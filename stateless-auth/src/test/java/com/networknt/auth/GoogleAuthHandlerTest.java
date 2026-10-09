@@ -30,7 +30,7 @@ class GoogleAuthHandlerTest {
             if (!token.equals(nonce)) throw new IllegalArgumentException();
             JwtClaims claims = new JwtClaims(); claims.setSubject("123456789");
             claims.setClaim("email", "user@gmail.com"); return claims;
-        }, (identity, token) -> Success.of(invalidAccount ? "{}" : JsonMapper.toJson(Map.of("userId", USER, "email", "stored@example.com")))) {
+        }, (identity, token) -> Success.of(invalidAccount ? "{}" : JsonMapper.toJson(Map.of("userId", USER, "email", "stored@example.com", "userType", "E")))) {
             @Override protected String currentUser(HttpServerExchange exchange) {
                 if (session == null) throw new IllegalArgumentException(); return session;
             }
@@ -55,9 +55,9 @@ class GoogleAuthHandlerTest {
         assertEquals(200, reply.statusCode());
         String cookie = reply.headers().firstValue("set-cookie").orElseThrow();
         for (String flag : List.of("Secure", "HttpOnly", "SameSite=None", "path=/")) assertTrue(cookie.toLowerCase().contains(flag.toLowerCase()));
-        return new String[]{(String) JsonMapper.string2Map(reply.body()).get("nonce"), cookie.split(";", 2)[0]};
+        return new String[]{(String) JsonMapper.string2Map(reply.body()).get("nonce"), cookie.split(";", 2)[0], (String) JsonMapper.string2Map(reply.body()).get("challengeId")};
     }
-    private String body(String nonce) { return JsonMapper.toJson(Map.of("credential", nonce, "state", "a&b")); }
+    private String body(String nonce, String id) { return JsonMapper.toJson(Map.of("credential", nonce, "state", "a&b", "challengeId", id)); }
     @Test void originAndLegacyCodeAreRejected() throws Exception {
         assertEquals(403, request("/google?challenge=1", "{}", null, null).statusCode());
         assertEquals(403, request("/google?challenge=1", "{}", null, "https://evil.example").statusCode());
@@ -66,33 +66,41 @@ class GoogleAuthHandlerTest {
     }
     @Test void singleUseChallengePreservesState() throws Exception {
         var c = challenge("/google");
-        var reply = request("/google", body(c[0]), c[1], "https://signin.example");
+        var reply = request("/google", body(c[0], c[2]), c[1], "https://signin.example");
         assertEquals(200, reply.statusCode()); assertEquals("a&b", reply.body());
-        assertEquals(403, request("/google", body(c[0]), c[1], "https://signin.example").statusCode());
+        assertEquals(403, request("/google", body(c[0], c[2]), c[1], "https://signin.example").statusCode());
         assertEquals(1, issued.get());
     }
     @Test void invalidCredentialConsumesChallengeWithoutSession() throws Exception {
         var c = challenge("/google");
-        assertEquals(401, request("/google", body("wrong"), c[1], "https://signin.example").statusCode());
-        assertEquals(403, request("/google", body(c[0]), c[1], "https://signin.example").statusCode());
+        assertEquals(401, request("/google", body("wrong", c[2]), c[1], "https://signin.example").statusCode());
+        assertEquals(403, request("/google", body(c[0], c[2]), c[1], "https://signin.example").statusCode());
         assertEquals(0, issued.get());
     }
     @Test void malformedAndDuplicateInputsCannotMintSession() throws Exception {
         for (String body : List.of("{", "{\"credential\":\"a\",\"credential\":\"b\"}", "{\"credential\":\"a\",\"state\":123}", "{\"credential\":\"a\",\"unexpected\":true}"))
             assertEquals(400, request("/google", body, null, "https://signin.example").statusCode());
-        assertEquals(403, request("/google", body("x"), null, "https://signin.example").statusCode());
+        assertEquals(403, request("/google", body("x", "a".repeat(22)), null, "https://signin.example").statusCode());
         assertEquals(0, issued.get());
     }
     @Test void linkingRequiresSameAuthenticatedAccountAndDoesNotMintSession() throws Exception {
         assertEquals(401, request("/google/link?challenge=1", "{}", null, "https://signin.example").statusCode());
         session = USER; var switched = challenge("/google/link"); session = UUID.randomUUID().toString();
-        assertEquals(403, request("/google/link", body(switched[0]), switched[1], "https://signin.example").statusCode());
+        assertEquals(403, request("/google/link", body(switched[0], switched[2]), switched[1], "https://signin.example").statusCode());
         session = USER; var linked = challenge("/google/link");
-        var reply = request("/google/link", body(linked[0]), linked[1], "https://signin.example");
+        var reply = request("/google/link", body(linked[0], linked[2]), linked[1], "https://signin.example");
         assertEquals(200, reply.statusCode()); assertTrue(reply.body().contains("\"linked\":true")); assertEquals(0, issued.get());
+    }
+    @Test void independentTabsKeepTheirChallenges() throws Exception {
+        var first = challenge("/google"); var second = challenge("/google");
+        assertNotEquals(first[1].split("=")[0], second[1].split("=")[0]);
+        String cookies = first[1] + "; " + second[1];
+        assertEquals(200, request("/google", body(first[0], first[2]), cookies, "https://signin.example").statusCode());
+        assertEquals(200, request("/google", body(second[0], second[2]), cookies, "https://signin.example").statusCode());
+        assertEquals(2, issued.get());
     }
     @Test void invalidServiceAccountFailsClosed() throws Exception {
         invalidAccount = true; var c = challenge("/google");
-        assertEquals(503, request("/google", body(c[0]), c[1], "https://signin.example").statusCode()); assertEquals(0, issued.get());
+        assertEquals(503, request("/google", body(c[0], c[2]), c[1], "https://signin.example").statusCode()); assertEquals(0, issued.get());
     }
 }

@@ -56,13 +56,23 @@ final class GooglePortalClient {
             }
             ClientResponse reply = response.get();
             String result = reply.getAttachment(Http2Client.RESPONSE_BODY);
-            if (reply.getResponseCode() != 200) return Failure.of(new Status(reply.getResponseCode(),
-                    "GOOGLE_IDENTITY_REJECTED", "Google account could not be signed in or linked",
-                    "Sign in to the existing account to link it, or contact an administrator"));
+            if (reply.getResponseCode() != 200) return rejection(reply.getResponseCode(), result);
             return Success.of(result);
         } catch (Exception exception) {
             if (exception instanceof InterruptedException) Thread.currentThread().interrupt();
             return Failure.of(new Status(503, "GOOGLE_IDENTITY_UNAVAILABLE", "Identity service unavailable", "Try again"));
         } finally { if (borrowed != null) client.restore(borrowed); }
+    }
+    static Result<String> rejection(int status, String body) {
+        if (status == 409) return Failure.of(new Status(409, "GOOGLE_ACCOUNT_LINK_REQUIRED",
+                "Google account conflict", "Sign in to the existing account to link Google"));
+        if (status == 403) {
+            try {
+                Map<String, Object> response = JsonMapper.string2Map(body);
+                if ("PORTAL_ACCOUNT_UNAVAILABLE".equals(response.get("code")))
+                    return Failure.of(new Status(403, "PORTAL_ACCOUNT_UNAVAILABLE", "Portal account unavailable", "Contact an administrator"));
+            } catch (Exception ignored) { }
+        }
+        return Failure.of(new Status(503, "GOOGLE_IDENTITY_UNAVAILABLE", "Identity service unavailable", "Try again later"));
     }
 }

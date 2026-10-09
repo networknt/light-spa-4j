@@ -9,6 +9,7 @@ import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.monad.Result;
 import com.networknt.utility.UuidUtil;
+import com.networknt.utility.Constants;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.server.handlers.Cookie;
 import io.undertow.server.handlers.CookieImpl;
@@ -21,7 +22,7 @@ import java.util.*;
 
 /** GIS ID-token callback, with explicit linking to the current authenticated Portal account. */
 public class GoogleAuthHandler extends StatelessAuthHandler implements MiddlewareHandler {
-    private static final String NONCE_COOKIE = "__Host-google_signin_nonce";
+    private static final String NONCE_COOKIE = "__Host-google_signin_nonce_";
     private static final GoogleSignInChallenge CHALLENGES = new GoogleSignInChallenge();
     private static final ObjectMapper JSON = Config.getInstance().getMapper().copy()
             .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
@@ -63,9 +64,13 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
                 exchange.getResponseHeaders().put(Headers.ALLOW, "POST"); reject(exchange, 405, "METHOD_NOT_ALLOWED"); return;
             }
             try {
-                GoogleSignInChallenge.Challenge challenge = CHALLENGES.issue(currentUser);
-                nonceCookie(exchange, challenge.nonce(), 300);
-                json(exchange, Map.of("nonce", challenge.nonce()));
+                GoogleSignInChallenge.Challenge challenge = CHALLENGES.issue(currentUser,
+                        exchange.getSourceAddress().getAddress().getHostAddress());
+                nonceCookie(exchange, challenge.id(), challenge.nonce(), 300);
+                json(exchange, Map.of("nonce", challenge.nonce(), "challengeId", challenge.id()));
+            } catch (GoogleSignInChallenge.RateLimited exception) {
+                exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "300");
+                reject(exchange, 429, "GOOGLE_CHALLENGE_RATE_LIMITED");
             } catch (IllegalStateException exception) { reject(exchange, 503, "GOOGLE_CHALLENGE_UNAVAILABLE"); }
             return;
         }
@@ -80,16 +85,17 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
             byte[] bytes = exchange.getInputStream().readNBytes(16385);
             if (bytes.length > 16384) { reject(exchange, 413, "REQUEST_TOO_LARGE"); return; }
             body = JSON.readValue(bytes, JSON.getTypeFactory().constructMapType(Map.class, String.class, Object.class));
-            if (body == null || !Set.of("credential", "state").containsAll(body.keySet())) throw new IllegalArgumentException();
+            if (body == null || !Set.of("credential", "state", "challengeId").containsAll(body.keySet())) throw new IllegalArgumentException();
         } catch (Exception exception) { reject(exchange, 400, "INVALID_REQUEST"); return; }
         String credential = body.get("credential") instanceof String s ? s : null;
         String state = body.get("state") instanceof String s ? s : "";
-        if (credential == null || credential.isBlank() || credential.length() > 8192 || state.length() > 128 || (body.containsKey("state") && !(body.get("state") instanceof String))) {
+        String challengeId = body.get("challengeId") instanceof String s ? s : "";
+        if (!challengeId.matches("[A-Za-z0-9_-]{22}") || credential == null || credential.isBlank() || credential.length() > 8192 || state.length() > 128 || (body.containsKey("state") && !(body.get("state") instanceof String))) {
             reject(exchange, 400, "INVALID_REQUEST"); return;
         }
-        Cookie cookie = exchange.getRequestCookie(NONCE_COOKIE);
-        GoogleSignInChallenge.Challenge challenge = cookie == null ? null : CHALLENGES.consume(cookie.getValue());
-        nonceCookie(exchange, "", 0);
+        Cookie cookie = exchange.getRequestCookie(NONCE_COOKIE + challengeId);
+        GoogleSignInChallenge.Challenge challenge = cookie == null ? null : CHALLENGES.consume(challengeId, cookie.getValue());
+        nonceCookie(exchange, challengeId, "", 0);
         if (challenge == null || !Objects.equals(currentUser, challenge.userId())) {
             reject(exchange, 403, "GOOGLE_CHALLENGE_REJECTED"); return;
         }
@@ -114,11 +120,13 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
             UUID.fromString((String) account.get("userId"));
             if (!(account.get("email") instanceof String address) || address.isBlank() || address.length() > 255)
                 throw new IllegalArgumentException();
+            if (!(account.get("userType") instanceof String type) || !Set.of("E", "C", "U", "F").contains(type))
+                throw new IllegalArgumentException();
         } catch (Exception exception) { reject(exchange, 503, "GOOGLE_IDENTITY_UNAVAILABLE"); return; }
         if (link) {
-            String redirect = redirect(config.getRedirectUri(), state);
-            json(exchange, Map.of("linked", true, "scopes", List.of(), "redirectUri", redirect,
-                    "denyUri", config.getDenyUri() == null ? redirect : config.getDenyUri()));
+            Map<String, Object> reply = response(config, state, List.of());
+            reply.put("linked", true);
+            json(exchange, reply);
         } else {
             issueSession(exchange, account, state, config);
         }
@@ -135,30 +143,42 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
     protected String currentUser(HttpServerExchange exchange) throws Exception {
         Cookie cookie = exchange.getRequestCookie("accessToken");
         if (cookie == null) throw new IllegalArgumentException("No session");
-        JwtClaims claims = jwtVerifier.verifyJwt(cookie.getValue(), false, false);
-        return UUID.fromString(claims.getStringClaimValue("user_id")).toString();
+        JwtClaims claims = jwtVerifier.verifyJwt(cookie.getValue(), false, true);
+        return UUID.fromString(claims.getStringClaimValue(Constants.UID)).toString();
     }
 
     protected void issueSession(HttpServerExchange exchange, Map<String, Object> account, String state,
                                 StatelessAuthConfig config) throws Exception {
         String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
-        TokenRequest request = new ClientAuthenticatedUserRequest("social", (String) account.get("email"), "user");
+        TokenRequest request = new ClientAuthenticatedUserRequest((String) account.get("userType"),
+                (String) account.get("userId"), "user");
         request.setCsrf(csrf);
         Result<TokenResponse> result = OauthHelper.getTokenResult(request);
         if (result.isFailure()) { reject(exchange, result.getError().getStatusCode(), result.getError().getCode()); return; }
         List scopes = setCookies(exchange, result.getResult(), csrf, config);
+        if (scopes == null || exchange.isComplete() || exchange.getStatusCode() >= 400) return;
+        if (config.getRedirectUri() == null || config.getRedirectUri().isBlank()) {
+            exchange.setStatusCode(200); exchange.endExchange(); return;
+        }
+        json(exchange, response(config, state, scopes));
+    }
+
+    private static Map<String, Object> response(StatelessAuthConfig config, String state, List scopes) {
+        Map<String, Object> reply = new HashMap<>();
+        reply.put("scopes", scopes);
         String redirect = redirect(config.getRedirectUri(), state);
-        json(exchange, Map.of("scopes", scopes, "redirectUri", redirect,
-                "denyUri", config.getDenyUri() == null ? redirect : config.getDenyUri()));
+        reply.put("redirectUri", redirect);
+        reply.put("denyUri", config.getDenyUri() == null ? redirect : config.getDenyUri());
+        return reply;
     }
 
     static String redirect(String base, String state) {
-        if (state == null || state.isEmpty()) return base;
+        if (base == null || base.isBlank() || state == null || state.isEmpty()) return base;
         String route = base.contains("#") ? base.substring(base.indexOf('#') + 1) : base;
         return base + (route.contains("?") ? "&" : "?") + "state=" + URLEncoder.encode(state, StandardCharsets.UTF_8);
     }
-    private static void nonceCookie(HttpServerExchange exchange, String nonce, int maxAge) {
-        exchange.setResponseCookie(new CookieImpl(NONCE_COOKIE, nonce).setPath("/")
+    private static void nonceCookie(HttpServerExchange exchange, String id, String nonce, int maxAge) {
+        exchange.setResponseCookie(new CookieImpl(NONCE_COOKIE + id, nonce).setPath("/")
                 .setHttpOnly(true).setSecure(true).setSameSiteMode("None").setMaxAge(maxAge));
     }
     private static void json(HttpServerExchange exchange, Object body) {
@@ -166,6 +186,6 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
         exchange.getResponseSender().send(JsonMapper.toJson(body));
     }
     private static void reject(HttpServerExchange exchange, int status, String code) {
-        exchange.setStatusCode(status); json(exchange, Map.of("code", code));
+        exchange.setStatusCode(status); json(exchange, Map.of("code", code == null ? "GOOGLE_IDENTITY_UNAVAILABLE" : code));
     }
 }
