@@ -1,0 +1,4 @@
+# Exact login-view origin; blank disables Google sign-in. Never use a wildcard.
+allowedOrigin: ${google-sign-in.allowedOrigin:}
+# Optional fixed HTTPS RPC endpoint. Otherwise use Portal command service discovery.
+portalCommandUrl: ${google-sign-in.portalCommandUrl:}
