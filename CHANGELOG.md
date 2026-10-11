@@ -1,5 +1,23 @@
 # Change Log
 
+## [2.4.1](https://github.com/networknt/light-spa-4j/tree/2.4.1) (2026-10-11)
+
+**Commits:**
+
+- upgrade to version 2.4.1 before release in master branch ([c34a067](https://github.com/networknt/light-spa-4j/commit/c34a0670da205cb1aa6e06517b943589eb335732)) (by Steve Hu)
+- Use trusted proxy forwarding for Google challenge rate limits ([06f59f8](https://github.com/networknt/light-spa-4j/commit/06f59f84e2741a01370504d873f3a9ef12cac311)) (by Steve Hu)
+- Fix Google Portal session contract and isolate sign-in attempts ([f0f5bd0](https://github.com/networknt/light-spa-4j/commit/f0f5bd0e92bf2f6ca05cfd227988d76ad7b668ac)) (by Steve Hu)
+- Migrate Google sign-in to verified GIS ID tokens ([2ff7564](https://github.com/networknt/light-spa-4j/commit/2ff75640e5a1283f39a6c4fdcc3c5af3d4023742)) (by Steve Hu)
+- fixes #170 upgrade google and facebook dependencies ([3cc71df](https://github.com/networknt/light-spa-4j/commit/3cc71df3f4f1412687f59f1bb132f0fcf04373a5)) (by Steve Hu)
+- upgrade maven-gpg to 3.2.8 from 3.2.7 ([cead0e8](https://github.com/networknt/light-spa-4j/commit/cead0e8dcd96a443f76506976a87657ebfa58e22)) (by Steve Hu)
+- test: upgrade JUnit and parse quoted roles cookies ([f56ef6a](https://github.com/networknt/light-spa-4j/commit/f56ef6aec487c1ca7a403cf3e3d29e3793e11dcd)) (by Steve Hu)
+- upgrade redisson to 4.8.0 from 3.45.1 ([d32c3c4](https://github.com/networknt/light-spa-4j/commit/d32c3c4a6d80e098ab00d83d49049de23ec3978b)) (by Steve Hu)
+- upgrade udertow to 2.4.4.Final from 2.4.1.Final ([28c5aa8](https://github.com/networknt/light-spa-4j/commit/28c5aa8bf4343831f2eae7771287915861f474ce)) (by Steve Hu)
+- upgrade logback to 1.6.5 from 1.6.3 ([9293045](https://github.com/networknt/light-spa-4j/commit/9293045568302713f987c01a5873603acf4d0968)) (by Steve Hu)
+- upgrade snakeyaml to 2.7 from 2.4 ([4d34fd7](https://github.com/networknt/light-spa-4j/commit/4d34fd7f5a45e1a8fec2a70a252d769455afc104)) (by Steve Hu)
+- upgrade encoder to 1.5.0 from 1.3.1 ([eaaa337](https://github.com/networknt/light-spa-4j/commit/eaaa337655f913eb3ce492c84baa2b1f1722dfb6)) (by Steve Hu)
+- upgrade to version 2.4.1-SNAPSHOT after release in master branch ([9ec9fd2](https://github.com/networknt/light-spa-4j/commit/9ec9fd2621e92521968553f51cbe27eaddb5eb01)) (by Steve Hu)
+
 ## [2.4.0](https://github.com/networknt/light-spa-4j/tree/2.4.0) (2026-10-07)
 
 **Commits:**
