@@ -105,7 +105,7 @@
         <version.junit>6.1.3</version.junit>
         <version.undertow>2.4.4.Final</version.undertow>
         <version.snakeyaml>2.7</version.snakeyaml>
-        <version.caffeine>3.3.0</version.caffeine>
+        <version.caffeine>3.3.1</version.caffeine>
         <version.facebook>2026.9.0</version.facebook>
         <version.redisson>4.8.0</version.redisson>
         <versions.maven-version>2.22.0</versions.maven-version>
