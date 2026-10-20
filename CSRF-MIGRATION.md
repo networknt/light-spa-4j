@@ -165,12 +165,17 @@ Timeouts (including a single-flight waiter's five-second deadline), network erro
 temporary token-server errors, and unknown outcomes preserve all cookies. They
 return HTTP **503**, code `SPA_SESSION_TEMPORARY_FAILURE`, and `Retry-After: 1`,
 without downstream execution. A late waiter cannot erase an owner's successful
-session rotation. The owner is not canceled when a waiter times out. The same
-classification applies to proactive renewal of an authenticated session.
+session rotation. The owner is not canceled when a waiter times out. For proactive renewal, a temporary failure instead allows the original
+request if its already verified access token is still unexpired after the attempt.
+No cookies change in this fallback. If the token expires during the attempt, the
+request receives the same non-forwarding 503; expired credentials are never forwarded.
 
 Only an explicit terminal refresh-token result clears owned cookies and returns
-a sign-in-required 401. Currently the supported light-oauth signal is HTTP status
-404 in the returned Status with code `ERR12029` (`REFRESH_TOKEN_NOT_FOUND`). Generic
+a sign-in-required 401. Supported light-oauth signals are a returned Status with HTTP status
+404 and code `ERR12029` (`REFRESH_TOKEN_NOT_FOUND`), and Rust light-oauth's exact
+plain-text `Refresh token not found` response (HTTP 400 at the provider). The OAuth
+helper discards non-JSON transport status and wraps this body as `ERR10052`; only
+that exact wrapped description is terminal, never `ERR10052` generally. Generic
 401s such as `ERR10053` from the OAuth client are **not** terminal: that client uses
 401 for network errors too. Unrecognized provider error shapes remain temporary
 rather than destroying a session.
@@ -209,3 +214,8 @@ through ordinary renewal; legacy values no longer survive indefinitely.
 
 Run backend validation with `mvn test` (or `mvn verify`). Handler and local TLS
 tests are component evidence, not deployed Portal/browser/proxy qualification.
+
+For logout with an unpublished JWT key ID, the gateway confirms that the key is
+absent from a successfully fetched and parsed JWKS before treating the session as
+unusable. Trusted-browser cleanup can then clear it. Failed or malformed JWKS
+lookups remain uncertain and return 503 with cookies preserved.

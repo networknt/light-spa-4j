@@ -60,6 +60,7 @@ public class MsalTokenExchangeHandlerTest {
     private static final char[] STORE_PASSWORD = "password".toCharArray();
     final Http2Client client = Http2Client.getInstance();
 
+    private static volatile boolean jwksUnavailable;
     private static volatile CountDownLatch slowRefreshEntered;
     private static volatile CountDownLatch slowRefreshRelease;
 
@@ -89,6 +90,11 @@ public class MsalTokenExchangeHandlerTest {
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(Handlers.header(Handlers.path()
                                     .addPrefixPath("/oauth2/N2CMw0HGQXeLvC1wBfln2A/keys", (exchange) -> {
+                                        if (jwksUnavailable) {
+                                            exchange.setStatusCode(503);
+                                            exchange.getResponseSender().send("JWKS temporarily unavailable");
+                                            return;
+                                        }
                                         exchange.getResponseHeaders().add(new HttpString("Content-Type"), "application/json");
                                         exchange.getResponseSender().send("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}");
                                     })
@@ -147,6 +153,19 @@ public class MsalTokenExchangeHandlerTest {
             if (body.contains("slow-refresh")) {
                 slowRefreshEntered.countDown();
                 if (!slowRefreshRelease.await(8, TimeUnit.SECONDS)) throw new IllegalStateException("Test release timed out");
+            }
+            if (body.contains("rust-dead-refresh") || body.contains("plain-error-refresh")) {
+                exchange.setStatusCode(400);
+                exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "text/plain; charset=utf-8");
+                exchange.getResponseSender().send(body.contains("rust-dead-refresh") ? "Refresh token not found" : "Refresh service unavailable");
+                return;
+            }
+            if (body.contains("delayed-error-refresh")) {
+                Thread.sleep(2200);
+                exchange.setStatusCode(503);
+                exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "text/plain");
+                exchange.getResponseSender().send("Temporarily unavailable");
+                return;
             }
             if (body.contains("invalid-refresh")) {
                 exchange.setStatusCode(404);
@@ -575,18 +594,72 @@ public class MsalTokenExchangeHandlerTest {
 
 
     @Test
+    public void testRustDeadRefreshClearsCookies() throws Exception {
+        ClientResponse response = sendRequest(Methods.POST, "/api", "refreshToken=rust-dead-refresh; csrf=stale", null, "https://portal.test");
+        Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+        Assertions.assertEquals("", issuedCookie(response, "refreshToken"));
+        Assertions.assertEquals("", issuedCookie(response, "accessToken"));
+        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+    }
+
+    @Test
+    public void testTemporaryRenewalNeverForwardsTokenExpiredDuringAttempt() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        ClientResponse response = sendRequest(Methods.POST, "/api", "refreshToken=delayed-error-refresh; csrf=" + csrf
+                + "; accessToken=" + getJwt(2, csrf), csrf, "https://portal.test");
+        Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
+        Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+    }
+
+    @Test
+    public void testRetiredKeyLogoutRequiresTrustedBrowser() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        String token = retiredKeyJwt(csrf);
+        String cookies = "accessToken=" + token + "; csrf=" + csrf;
+        ClientResponse rejected = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://evil.test");
+        Assertions.assertEquals(StatusCodes.BAD_REQUEST, rejected.getResponseCode());
+        Assertions.assertNull(rejected.getResponseHeaders().get(Headers.SET_COOKIE));
+        ClientResponse cleaned = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, cleaned.getResponseCode());
+        Assertions.assertEquals("", issuedCookie(cleaned, "accessToken"));
+    }
+
+    private static String retiredKeyJwt(String csrf) throws Exception {
+        String token = getJwt(600, csrf);
+        String[] parts = token.split("\\.");
+        String header = new String(java.util.Base64.getUrlDecoder().decode(parts[0]), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("Tj_l_tIBTginOtQbL0Pv5w", "retired-key");
+        token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(header.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                + "." + parts[1] + "." + parts[2];
+        return token;
+    }
+
+    @Test
+    public void testUnavailableJwksPreservesLogoutCookies() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
+        jwksUnavailable = true;
+        try {
+            ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
+            Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
+            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        } finally { jwksUnavailable = false; }
+    }
+
+    @Test
     public void testTemporaryRecoveryAndRenewalFailuresPreserveCookies() throws Exception {
-        for (String refresh : new String[]{"transient-refresh", "network-error-refresh", "unknown-refresh"}) {
+        for (String refresh : new String[]{"transient-refresh", "network-error-refresh", "unknown-refresh", "plain-error-refresh"}) {
             for (boolean hasAccess : new boolean[]{false, true}) {
                 String csrf = com.networknt.auth.csrf.Csrf.nonce();
                 String cookies = "refreshToken=" + refresh + "; csrf=" + csrf
                         + (hasAccess ? "; accessToken=" + getJwt(30, csrf) : "");
                 ClientResponse response = sendRequest(Methods.POST, "/api", cookies, csrf, "https://portal.test");
-                Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
-                Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("SPA_SESSION_TEMPORARY_FAILURE"));
+                Assertions.assertEquals(hasAccess ? StatusCodes.OK : StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
+                if (!hasAccess) Assertions.assertTrue(response.getAttachment(Http2Client.RESPONSE_BODY).contains("SPA_SESSION_TEMPORARY_FAILURE"));
                 Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
-                Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
-                Assertions.assertEquals("1", response.getResponseHeaders().getFirst(Headers.RETRY_AFTER));
+                Assertions.assertEquals(hasAccess ? "true" : null, response.getResponseHeaders().getFirst("X-Test-Next"));
+                Assertions.assertEquals(hasAccess ? null : "1", response.getResponseHeaders().getFirst(Headers.RETRY_AFTER));
             }
         }
     }

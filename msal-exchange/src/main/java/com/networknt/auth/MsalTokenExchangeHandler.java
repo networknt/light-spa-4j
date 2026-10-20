@@ -233,7 +233,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // per minute will make the session continue until the browser tab is closed.
                 if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000
                         && exchange.getRequestCookie(REFRESH_TOKEN) != null) {
-                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config, jwtCsrf);
+                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config, jwtCsrf, jwt, claims.getExpirationTime().getValueInMillis());
                     // Response completion can be asynchronous on worker threads. Use the explicit
                     // renewal outcome, not isComplete(), to prevent executing an unaccepted action.
                     if (jwt == null) return;
@@ -424,7 +424,14 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 "Session state could not be determined. Cookies were preserved; retry later."));
     }
 
-    private String renewToken(HttpServerExchange exchange, Cookie cookie, MsalExchangeConfig config, String verifiedCsrf) throws Exception {
+    private String renewalUnavailable(HttpServerExchange exchange, String originalJwt, long expiresAt) {
+        // Recheck after the refresh attempt: it may have outlived the original token.
+        if (System.currentTimeMillis() < expiresAt) return originalJwt;
+        sessionUnavailable(exchange);
+        return null;
+    }
+
+    private String renewToken(HttpServerExchange exchange, Cookie cookie, MsalExchangeConfig config, String verifiedCsrf, String originalJwt, long expiresAt) throws Exception {
         String jwt = null;
         if(cookie != null) {
             String refreshToken = cookie.getValue();
@@ -434,11 +441,9 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     result = RefreshTokenSingleFlight.renew(refreshToken, verifiedCsrf, logger);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    sessionUnavailable(exchange);
-                    return null;
+                    return renewalUnavailable(exchange, originalJwt, expiresAt);
                 } catch (Exception e) {
-                    sessionUnavailable(exchange);
-                    return null;
+                    return renewalUnavailable(exchange, originalJwt, expiresAt);
                 }
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
@@ -454,7 +459,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
                             "Refresh token is no longer valid. Sign in again."));
                 } else {
-                    sessionUnavailable(exchange);
+                    return renewalUnavailable(exchange, originalJwt, expiresAt);
                 }
             }
         }

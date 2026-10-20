@@ -144,9 +144,12 @@ public final class RefreshTokenSingleFlight {
             return error == null;
         }
 
-        /** The client maps transport failures to 401 too; only a terminal provider code is definitive. */
+        /** OauthHelper loses the HTTP status of non-JSON responses. Match only the exact
+         * supported Rust provider response after its Status wrapping, never ERR10052 alone. */
         public boolean isInvalidRefreshToken() {
-            return error != null && error.getStatusCode() == 404 && "ERR12029".equals(error.getCode());
+            return error != null && ((error.getStatusCode() == 404 && "ERR12029".equals(error.getCode()))
+                    || ("ERR10052".equals(error.getCode())
+                    && new Status("ERR10052", "Refresh token not found").getDescription().equals(error.getDescription())));
         }
     }
 
