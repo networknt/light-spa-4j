@@ -53,12 +53,23 @@ access token share this binding boundary.
 
 ## HTTP and WebSockets
 
-Ordinary cookie-authenticated HTTP requests must send the opaque CSRF cookie
-value in `X-CSRF-TOKEN`. Requests containing a `csrf` query parameter are rejected
-before forwarding, even when a valid header is also present. This applies to
-login/callback/logout endpoints too; OAuth's separate `state` parameter remains
-supported. Removing acceptance does not erase a URL already logged by an upstream
-proxy. Remove query credentials from clients and review proxy/access logging.
+Cookie-authenticated API requests normally send the opaque CSRF cookie value
+in `X-CSRF-TOKEN`. Such requests containing a `csrf` query parameter are rejected
+with HTTP 401 / `ERR10039`, even when a valid header is also present. Query data
+on anonymous routes, login/callback dispatch, and OPTIONS preflight are not
+globally intercepted. OAuth's separate `state` parameter remains supported.
+Removing acceptance does not erase a URL already logged by an upstream proxy.
+Remove query credentials from clients and review proxy/access logging.
+
+Native read-only browser GET/HEAD requests (EventSource/SSE, images, download
+links, and same-origin `window.open`) can use the CSRF cookie without a custom
+header. The handler still verifies that cookie against the signed session
+binding and requires trusted browser provenance: an exact trusted Origin, the
+gateway's direct request origin, or `Sec-Fetch-Site: same-origin` when Origin is
+absent. A present malformed, `null`, or untrusted Origin is never overridden by
+Fetch Metadata. Same-site and cross-site metadata alone are insufficient. This
+fallback does not apply to unsafe HTTP methods or WebSockets. Preserve Origin
+and Fetch Metadata through proxies; forwarding headers cannot establish trust.
 
 Browser WebSockets may send `csrf.<value>` in `Sec-WebSocket-Protocol`. Each
 client must also offer a supported noncredential application protocol (for
@@ -79,8 +90,11 @@ supported; native lists also work in direct configuration maps. Use origins
 such as `https://portal.example.com:8443`, without paths, trailing slashes,
 wildcards, credentials, queries, or fragments. An empty list disables
 cookie-authenticated WebSockets. Absent, `null`, malformed, or unlisted request
-Origins are rejected, even when a CSRF header is supplied. Forwarding headers
-and Host are not used to construct an allowlist.
+Origins are rejected, even when a CSRF header is supplied. Origin comparison
+normalizes scheme/host case and omits explicit default ports (80/443).
+Forwarding headers and Host are not used to construct the WebSocket allowlist.
+A blank CSRF header can fall back to the WebSocket subprotocol; conflicting
+nonblank values are rejected.
 
 The gateway requires GET, a valid 16-byte WebSocket key, and version 13. These
 end-to-end handshake headers can survive a proxy stripping hop-by-hop headers;
@@ -94,22 +108,40 @@ application protocol; other application protocols are preserved.
 ## Logout and renewal
 
 `logoutCsrfEnforced` defaults to `true` in all three handlers and templates.
-Logout needs the access-token cookie and its bound CSRF value, including cookie
-and header agreement. Signed expired tokens can be used for logout cleanup;
-expiry relaxation does not authorize API access. Invalid, unsigned, or partial
-sessions fail closed. No-session logout remains an idempotent POST.
+The usual logout path checks the access-token cookie and its bound CSRF value,
+including cookie/header agreement. Signed expired tokens can be used for
+cleanup; expiry relaxation does not authorize API access. A POST with trusted
+browser provenance can also clear unusable sessions: orphan cookies, old
+unsigned CSRF cookies, and values signed by a removed key. This path only deletes
+owned cookies; it neither authenticates nor forwards any request. Untrusted
+requests cannot use it. No-session logout remains an idempotent POST.
 
 An explicit `logoutCsrfEnforced: false` retains the existing observation-only
 migration escape hatch and counters. Such deployments do **not** enforce logout
 CSRF protection. Set enforcement to true as part of the rollout.
 
-Exchange/stateless renewal preserves the CSRF claim verified on the old signed
-access token. Concurrent refresh results are isolated by both refresh token and
-verified CSRF context. An opaque refresh-token cookie alone cannot authenticate
-a CSRF value, so automatic refresh-only recovery now fails closed: sign in again
-if the access-token cookie has expired or disappeared. Existing signed legacy
-CSRF claims remain accepted within the bounded input policy until session expiry;
-new login issuance uses the 32-byte nonce.
+Exchange/stateless renewal preserves a verified strong (32-byte) CSRF nonce.
+Rotating it on every ordinary refresh would invalidate headers already prepared
+by parallel requests or another tab. Legacy UUID CSRF claims are upgraded to a
+fresh 32-byte nonce on renewal; the gateway sets the new cookie pair and returns
+HTTP 401 with message `SESSION_REFRESHED` and `X-Session-Refreshed: true`, without
+injecting Authorization or invoking the downstream handler. The original action
+was not executed. Retry explicitly after rereading the CSRF cookie; do not add
+automatic replay of unsafe operations.
+
+When the access cookie has disappeared but a refresh cookie remains, trusted
+browser requests can likewise bootstrap a fresh signed session and CSRF nonce.
+The unverified old CSRF cookie is never copied into the new token. This recovery
+returns the same non-forwarding 401, including for a POST; it does not execute
+that POST. Failed refresh clears owned cookies before a 401 requiring sign-in.
+Untrusted or WebSocket requests cannot trigger recovery and receive a CSRF 401.
+They do not lose cookies as a side effect. A trusted POST logout always provides
+a cleanup path.
+
+Concurrent refresh results are isolated by refresh token and verified CSRF
+context; refresh-only recovery has a separate cache context. New login issuance
+and recovery always use a fresh 32-byte nonce. Strong session nonces stay stable
+through ordinary renewal; legacy values no longer survive indefinitely.
 
 ## Client and rollout checks
 
@@ -124,7 +156,9 @@ new login issuance uses the 32-byte nonce.
    Login/exchange and HTTP clients can keep reading the opaque `csrf` cookie and
    sending `X-CSRF-TOKEN`; no login rewrite is required. Query-based clients must
    change. Verify login/exchange, HTTP, POST logout, renewal/expiry, Chat, and
-   Controller end to end. Re-login when refresh-only recovery is rejected.
+   Controller end to end. Handle `SESSION_REFRESHED` as an unexecuted request:
+   offer an explicit retry after reading the new cookies. Sign in again if the
+   refresh itself is invalid; trusted-browser logout can clear stale cookies.
 4. Keep cookies Secure in production and check their domain/path scope. A future
    `__Host-` naming migration needs frontend reader changes and host-topology
    validation; it is not part of this format/transport change.

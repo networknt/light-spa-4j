@@ -28,13 +28,18 @@ public final class RefreshTokenSingleFlight {
     private RefreshTokenSingleFlight() {
     }
 
-    public static RefreshResult renew(String refreshToken, Logger logger) throws Exception {
-        return renew(refreshToken, null, logger);
+    public static RefreshResult recover(String refreshToken, Logger logger) throws Exception {
+        return refresh(refreshToken, null, logger);
     }
 
     public static RefreshResult renew(String refreshToken, String verifiedCsrf, Logger logger) throws Exception {
-        // Keep legacy direct callers separate from requests with an authenticated CSRF context.
-        String key = refreshTokenKey(refreshToken) + ":" + (verifiedCsrf == null ? "new" : refreshTokenKey(verifiedCsrf));
+        if (verifiedCsrf == null || verifiedCsrf.isBlank() || verifiedCsrf.length() > Csrf.MAX_LENGTH)
+            throw new IllegalArgumentException("Missing verified CSRF context");
+        return refresh(refreshToken, verifiedCsrf, logger);
+    }
+
+    private static RefreshResult refresh(String refreshToken, String verifiedCsrf, Logger logger) throws Exception {
+        String key = refreshTokenKey(refreshToken) + ":" + (verifiedCsrf == null ? "recovery" : refreshTokenKey(verifiedCsrf));
         cleanupRefreshCaches();
         CachedRefreshResult cached = refreshCompleted.get(key);
         if (cached != null) {
@@ -70,7 +75,7 @@ public final class RefreshTokenSingleFlight {
 
     private static RefreshResult refreshToken(String refreshToken, String verifiedCsrf) {
         TokenRequest tokenRequest = new RefreshTokenRequest();
-        String csrf = verifiedCsrf == null ? Csrf.nonce() : verifiedCsrf;
+        String csrf = Csrf.isNonce(verifiedCsrf) ? verifiedCsrf : Csrf.nonce();
         tokenRequest.setCsrf(csrf);
         ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
         Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);

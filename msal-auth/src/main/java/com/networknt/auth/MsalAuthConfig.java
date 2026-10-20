@@ -2,6 +2,7 @@ package com.networknt.auth;
 
 import com.networknt.config.Config;
 import com.networknt.auth.csrf.Csrf;
+import com.networknt.auth.csrf.SessionCsrf;
 import com.networknt.config.JsonMapper;
 import com.networknt.config.schema.BooleanField;
 import com.networknt.config.schema.IntegerField;
@@ -10,6 +11,7 @@ import com.networknt.config.schema.ArrayField;
 import com.networknt.server.ModuleRegistry;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.List;
 import java.util.Arrays;
 import java.net.URI;
@@ -25,11 +27,10 @@ public class MsalAuthConfig {
         }
     }
     private final Map<String, Object> mappedConfig;
-    @StringField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins",
-            description = "Exact comma-separated WebSocket Origins; empty disables cookie-authenticated WebSockets.", defaultValue = "")
-    private String websocketAllowedOrigins = "";
-    private java.util.Set<String> csrfOrigins = java.util.Set.of();
-    public java.util.Set<String> getWebsocketAllowedOrigins() { return csrfOrigins; }
+    @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
+            description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
+    private Set<String> websocketAllowedOrigins = Set.of();
+    public Set<String> getWebsocketAllowedOrigins() { return websocketAllowedOrigins; }
 
     @BooleanField(configFieldName = "enabled", externalizedKeyName = "enabled",
             description = "Enables direct MSAL authentication.", defaultValue = "true")
@@ -59,8 +60,8 @@ public class MsalAuthConfig {
     @StringField(configFieldName = "csrfSigningKeys", externalizedKeyName = "csrfSigningKeys",
             description = "Secret key ring: comma-separated id=unpadded-Base64URL-key entries, minimum 32 bytes per key.")
     private String csrfSigningKeys;
-    private com.networknt.auth.csrf.SessionCsrf sessionCsrf;
-    com.networknt.auth.csrf.SessionCsrf getSessionCsrf() { return sessionCsrf; }
+    private SessionCsrf sessionCsrf;
+    SessionCsrf getSessionCsrf() { return sessionCsrf; }
     @StringField(configFieldName = "loginPath", externalizedKeyName = "loginPath",
             description = "Endpoint used to establish an MSAL-backed gateway session.", defaultValue = "/auth/ms/login")
     private String loginPath = "/auth/ms/login";
@@ -129,7 +130,6 @@ public class MsalAuthConfig {
     }
 
     private void setConfigData() {
-        csrfOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
         Object value = mappedConfig.get("enabled");
         if (value != null) enabled = Config.loadBooleanValue("enabled", value);
         value = mappedConfig.get("loginPath"); if (value != null) loginPath = (String) value;
@@ -145,6 +145,7 @@ public class MsalAuthConfig {
         value = mappedConfig.get("cookieSameSite"); if (value != null) cookieSameSite = (String) value;
         // A disabled handler needs no trust policy, so its policy settings are not parsed either.
         if (!enabled) return;
+        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
         tenantId = stringSetting("tenantId");
         issuer = stringSetting("issuer");
         audience = stringSetting("audience");
@@ -155,7 +156,7 @@ public class MsalAuthConfig {
         tokenPolicy = new MsalTokenPolicy(tenantId, issuer, audience, requiredScopes, allowedClientIds);
         csrfSigningKeyId = stringSetting("csrfSigningKeyId");
         csrfSigningKeys = stringSetting("csrfSigningKeys");
-        sessionCsrf = new com.networknt.auth.csrf.SessionCsrf(csrfSigningKeyId, csrfSigningKeys);
+        sessionCsrf = new SessionCsrf(csrfSigningKeyId, csrfSigningKeys);
     }
 
     static void validateJwksUri(String value) {

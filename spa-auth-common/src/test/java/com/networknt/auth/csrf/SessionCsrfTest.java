@@ -71,4 +71,13 @@ class SessionCsrfTest {
         assertFalse(Csrf.equal("", ""));
         assertFalse(Csrf.equal("x".repeat(513), "x".repeat(513)));
     }
+
+    @Test void signingTemplatesAreSafeAcrossConcurrentRequests() {
+        SessionCsrf signer = new SessionCsrf("old", FIRST);
+        assertTrue(java.util.stream.IntStream.range(0, 100).parallel().allMatch(i -> {
+            String token = "session-" + i;
+            String value = signer.issue(token);
+            return signer.verify(value, token) && !signer.verify(value, "foreign-session");
+        }));
+    }
 }

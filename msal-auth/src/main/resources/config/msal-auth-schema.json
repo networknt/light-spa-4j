@@ -13,9 +13,10 @@
   ],
   "properties": {
         "websocketAllowedOrigins": {
-            "type": "string",
-            "description": "Exact comma-separated allowed WebSocket Origins. Empty denies cookie-authenticated WebSockets.",
-            "default": ""
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Trusted browser Origins. Empty disables cookie-authenticated WebSockets.",
+            "default": []
         },
         "csrfSigningKeyId": {
             "type": "string",

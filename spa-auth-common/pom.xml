@@ -5,6 +5,8 @@
     <artifactId>spa-auth-common</artifactId>
     <description>Shared SPA CSRF primitives and request transport validation.</description>
     <dependencies>
+        <dependency><groupId>com.networknt</groupId><artifactId>http-string</artifactId></dependency>
+        <dependency><groupId>com.networknt</groupId><artifactId>utility</artifactId></dependency>
         <dependency><groupId>io.undertow</groupId><artifactId>undertow-core</artifactId></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter-engine</artifactId><scope>test</scope></dependency>
     </dependencies>

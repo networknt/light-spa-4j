@@ -4,9 +4,10 @@
   "required" : [ "enabled", "redirectUri", "denyUri", "enableHttp2", "authPath", "logoutPath", "cookieDomain", "cookiePath", "cookieTimeoutUri", "cookieSecure", "sessionTimeout", "rememberMeTimeout", "bootstrapToken", "googlePath", "googleClientId", "googleClientSecret", "googleRedirectUri", "facebookPath", "facebookClientId", "facebookClientSecret", "githubPath", "githubClientId", "githubClientSecret" ],
   "properties" : {
         "websocketAllowedOrigins": {
-            "type": "string",
-            "description": "Exact comma-separated allowed WebSocket Origins. Empty denies cookie-authenticated WebSockets.",
-            "default": ""
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Trusted browser Origins. Empty disables cookie-authenticated WebSockets.",
+            "default": []
         },
     "enabled" : {
       "type" : "boolean",

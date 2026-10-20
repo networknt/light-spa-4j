@@ -53,13 +53,12 @@ public class MsalAuthHandler implements MiddlewareHandler {
     @Override
     public void handleRequest(HttpServerExchange exchange) throws Exception {
         MsalAuthConfig config = MsalAuthConfig.load();
-        if (!config.isEnabled()) {
+        if (Methods.OPTIONS.equals(exchange.getRequestMethod())) {
             Handler.next(exchange, next);
             return;
         }
-        try { Csrf.rejectQuery(exchange); }
-        catch (IllegalArgumentException e) {
-            rejectUnauthorized(exchange, CSRF_MISMATCH, "CSRF_VALIDATION_FAILED", "CSRF query parameters are not accepted");
+        if (!config.isEnabled()) {
+            Handler.next(exchange, next);
             return;
         }
         ensureVerifierState(config);
@@ -100,9 +99,9 @@ public class MsalAuthHandler implements MiddlewareHandler {
             String token = accessToken.getValue();
             if (verifyMicrosoftToken(exchange, token, config) == null) return;
             String requestCsrf;
-            try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
+            try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), cookieValue(exchange, Constants.CSRF)); }
             catch (IllegalArgumentException e) {
-                rejectUnauthorized(exchange, CSRF_MISSING, "CSRF_HEADER_MISSING", "Missing or invalid CSRF transport");
+                rejectUnauthorized(exchange, Csrf.code(e), "CSRF_VALIDATION_FAILED", "Missing or invalid CSRF transport");
                 return;
             }
             if (!Csrf.equal(cookieValue(exchange, Constants.CSRF), requestCsrf)
@@ -194,10 +193,12 @@ public class MsalAuthHandler implements MiddlewareHandler {
         boolean missing = requestCsrf == null;
         if (!missing && Csrf.equal(requestCsrf, cookieValue(exchange, Constants.CSRF))
                 && config.getSessionCsrf().verify(requestCsrf, cookieValue(exchange, ACCESS_TOKEN))) return true;
+        if (Csrf.recoveryAllowed(exchange, config.getWebsocketAllowedOrigins())) return true;
         long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
         logger.info("event=spa_auth_logout_csrf_would_reject runtime=msal-auth endpoint=logout " +
                         "failure={} enforced={} count={} counterScope=process reset=process_restart",
                 missing ? "header_missing" : "cookie_invalid", config.isLogoutCsrfEnforced(), count);
+        // Cleanup alone can use browser provenance when old/partial sessions cannot prove a binding.
         if (!config.isLogoutCsrfEnforced()) return true;
         rejectUnauthorized(exchange, missing ? CSRF_MISSING : LOGOUT_CSRF_INVALID,
                 missing ? "CSRF_HEADER_MISSING" : "LOGOUT_CSRF_VALIDATION_FAILED",

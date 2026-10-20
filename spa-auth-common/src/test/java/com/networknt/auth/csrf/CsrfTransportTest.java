@@ -16,7 +16,13 @@ class CsrfTransportTest {
                 (io.undertow.websockets.WebSocketConnectionCallback) (exchange, channel) -> channel.resumeReceives());
         server = Undertow.builder().setIoThreads(1).setWorkerThreads(2).addHttpListener(0, "127.0.0.1").setHandler(exchange -> {
             try {
-                Csrf.request(exchange, exchange.getRequestPath().equals("/disabled-socket") ? Set.of() : Set.of("https://portal.test"));
+                var origins = exchange.getRequestPath().equals("/disabled-socket") ? Set.<String>of() : Csrf.origins("https://PORTAL.test:443");
+                if (exchange.getRequestPath().equals("/recovery")) {
+                    if (!Csrf.recoveryAllowed(exchange, origins)) throw Csrf.invalid();
+                    exchange.getResponseSender().send("recovery-only");
+                    return;
+                }
+                Csrf.request(exchange, origins, exchange.getRequestCookies().containsKey("csrf") ? exchange.getRequestCookies().get("csrf").getValue() : null);
                 if (exchange.getRequestPath().equals("/real-socket")) {
                     handshake.handleRequest(exchange);
                     return;
@@ -34,9 +40,13 @@ class CsrfTransportTest {
     @AfterAll static void stop() { server.stop(); }
 
     private static String send(String path, String headers) throws Exception {
+        return send("GET", path, headers);
+    }
+
+    private static String send(String method, String path, String headers) throws Exception {
         try (Socket socket = new Socket("127.0.0.1", port)) {
             socket.setSoTimeout(5000);
-            String request = "GET " + path + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n" + headers + "\r\n";
+            String request = method + " " + path + " HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\nContent-Length: 0\r\n" + headers + "\r\n";
             socket.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
             return new String(socket.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         }
@@ -83,8 +93,36 @@ class CsrfTransportTest {
         assertEquals(Set.of(), Csrf.origins(null));
         assertEquals(Set.of("https://portal.test"), Csrf.origins("https://portal.test"));
         assertEquals(Set.of("https://portal.test"), Csrf.origins(List.of("https://portal.test")));
+        assertEquals(Set.of("https://portal.test"), Csrf.origins("HTTPS://PORTAL.TEST:443"));
+        assertEquals(Set.of("http://portal.test"), Csrf.origins("HTTP://PORTAL.TEST:80"));
+        assertEquals(Set.of("https://portal.test:8443"), Csrf.origins("https://PORTAL.TEST:8443"));
         for (String setting : List.of("*", "null", "https://user@portal.test", "https://portal.test/", "https://portal.test?x=1", "https://portal.test:99999"))
             assertThrows(IllegalArgumentException.class, () -> Csrf.origins(setting));
+    }
+
+    @Test void blankHeaderFallsBackToWebsocketProtocol() throws Exception {
+        String response = send("/socket", websocket("https://portal.test", "chat, csrf.valid") + "X-CSRF-TOKEN:   \r\n");
+        assertTrue(response.startsWith("HTTP/1.1 200"), response);
+    }
+
+    @Test void nativeReadOnlyRequestsRequireBrowserProvenanceAndBoundCookie() throws Exception {
+        assertTrue(send("/image", "Sec-Fetch-Site: same-origin\r\nCookie: csrf=bound\r\n").endsWith("downstream"));
+        assertTrue(send("/events", "Origin: https://portal.test\r\nCookie: csrf=bound\r\n").endsWith("downstream"));
+        rejected(send("/image", "Sec-Fetch-Site: same-site\r\nCookie: csrf=bound\r\n"));
+        rejected(send("/image", "Sec-Fetch-Site: cross-site\r\nCookie: csrf=bound\r\n"));
+        rejected(send("/image", "Cookie: csrf=bound\r\n"));
+        rejected(send("/image", "Sec-Fetch-Site: same-origin\r\n"));
+        rejected(send("POST", "/unsafe", "Sec-Fetch-Site: same-origin\r\nCookie: csrf=bound\r\n"));
+        rejected(send("/image?csrf=bound", "Sec-Fetch-Site: same-origin\r\nCookie: csrf=bound\r\n"));
+    }
+
+    @Test void recoveryProvenanceCannotBeForgedThroughForwardedHostOrNullOrigin() throws Exception {
+        assertTrue(send("POST", "/recovery", "Origin: https://portal.test\r\n").endsWith("recovery-only"));
+        assertTrue(send("POST", "/recovery", "Sec-Fetch-Site: same-origin\r\n").endsWith("recovery-only"));
+        rejected(send("POST", "/recovery", "Origin: null\r\nSec-Fetch-Site: same-origin\r\n"));
+        rejected(send("POST", "/recovery", "Origin: https://evil.test\r\nX-Forwarded-Host: evil.test\r\nX-Forwarded-Proto: https\r\n"));
+        rejected(send("POST", "/recovery", "Sec-Fetch-Site: same-site\r\n"));
+        rejected(send("POST", "/recovery?csrf=known", "Origin: https://portal.test\r\n"));
     }
 
     @Test void actualUpgradeNegotiatesApplicationProtocolWithoutCredential() throws Exception {

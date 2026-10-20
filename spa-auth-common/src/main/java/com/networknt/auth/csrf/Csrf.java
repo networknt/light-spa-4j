@@ -1,5 +1,7 @@
 package com.networknt.auth.csrf;
 
+import com.networknt.httpstring.HttpStringConstants;
+import com.networknt.utility.Constants;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.util.Headers;
 import io.undertow.util.HttpString;
@@ -11,12 +13,18 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.*;
+import java.util.regex.Pattern;
 
 /** Shared fail-closed CSRF transport policy. Never include credentials in exception messages. */
 public final class Csrf {
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final HttpString HEADER = new HttpString("X-CSRF-TOKEN");
+    private static final HttpString HEADER = HttpStringConstants.CSRF_TOKEN;
     private static final HttpString PROTOCOL = new HttpString("Sec-WebSocket-Protocol");
+    private static final HttpString FETCH_SITE = new HttpString("Sec-Fetch-Site");
+    private static final HttpString KEY = new HttpString("Sec-WebSocket-Key");
+    private static final HttpString VERSION = new HttpString("Sec-WebSocket-Version");
+    private static final Pattern SUBPROTOCOL = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
+    private static final Pattern NONCE = Pattern.compile("[A-Za-z0-9_-]{43}");
     public static final int MAX_LENGTH = 512;
 
     private Csrf() { }
@@ -44,7 +52,7 @@ public final class Csrf {
     }
 
     public static void rejectQuery(HttpServerExchange exchange) {
-        if (exchange.getQueryParameters().containsKey("csrf")) throw invalid();
+        if (exchange.getQueryParameters().containsKey(Constants.CSRF)) throw invalid();
     }
 
     /** A comma-separated list or a native YAML list; empty means no cookie-authenticated WebSockets. */
@@ -58,31 +66,75 @@ public final class Csrf {
         for (Object value : values) {
             if (!(value instanceof String text)) throw new IllegalArgumentException("Invalid WebSocket origin configuration");
             text = text.trim();
-            if (!origin(text)) throw new IllegalArgumentException("Invalid WebSocket origin configuration");
-            result.add(text);
+            String normalized = origin(text);
+            if (normalized == null) throw new IllegalArgumentException("Invalid WebSocket origin configuration");
+            result.add(normalized);
         }
         return Set.copyOf(result);
     }
 
-    private static boolean origin(String text) {
+    private static String origin(String text) {
         try {
             URI uri = URI.create(text);
-            return ("https".equals(uri.getScheme()) || "http".equals(uri.getScheme()))
-                    && uri.getHost() != null && uri.getRawUserInfo() == null && uri.getRawQuery() == null
-                    && uri.getRawFragment() == null && uri.getRawPath().isEmpty()
-                    && uri.getPort() >= -1 && uri.getPort() <= 65535;
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            if (!("https".equals(scheme) || "http".equals(scheme)) || uri.getHost() == null
+                    || uri.getRawUserInfo() != null || uri.getRawQuery() != null || uri.getRawFragment() != null
+                    || !uri.getRawPath().isEmpty() || uri.getPort() < -1 || uri.getPort() > 65535) return null;
+            int port = uri.getPort();
+            boolean defaultPort = port == -1 || (scheme.equals("https") && port == 443) || (scheme.equals("http") && port == 80);
+            return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + (defaultPort ? "" : ":" + port);
+        } catch (IllegalArgumentException e) { return null; }
+    }
+
+    public static boolean isNonce(String value) {
+        if (value == null || !NONCE.matcher(value).matches()) return false;
+        try { return Base64.getUrlEncoder().withoutPadding().encodeToString(Base64.getUrlDecoder().decode(value)).equals(value); }
+        catch (IllegalArgumentException e) { return false; }
+    }
+
+    /** Browser provenance only: not a substitute for API authorization or CSRF on unsafe requests. */
+    public static boolean trustedBrowser(HttpServerExchange exchange, Set<String> allowedOrigins) {
+        try {
+            String supplied = single(exchange, Headers.ORIGIN);
+            if (supplied != null) {
+                String normalized = origin(supplied);
+                if (normalized == null) return false;
+                // Host is the browser's target authority; forwarding headers are deliberately ignored.
+                String target = origin(exchange.getRequestScheme() + "://" + exchange.getHostAndPort());
+                return normalized.equals(target) || allowedOrigins.contains(normalized);
+            }
+            return "same-origin".equals(single(exchange, FETCH_SITE));
         } catch (IllegalArgumentException e) { return false; }
+    }
+
+    /** Restricted to non-authorizing rotation/cleanup, never downstream request execution. */
+    public static boolean recoveryAllowed(HttpServerExchange exchange, Set<String> allowedOrigins) {
+        try {
+            rejectQuery(exchange);
+            return trustedBrowser(exchange, allowedOrigins) && !isWebsocket(exchange);
+        } catch (IllegalArgumentException e) { return false; }
+    }
+
+    private static boolean isWebsocket(HttpServerExchange exchange) {
+        return exchange.getRequestHeaders().contains(KEY) || exchange.getRequestHeaders().contains(VERSION)
+                || exchange.getRequestHeaders().contains(PROTOCOL)
+                || "websocket".equalsIgnoreCase(exchange.getRequestHeaders().getFirst(Headers.UPGRADE));
     }
 
     /** Validate before forwarding any cookie-authenticated request, including refresh recovery. */
     public static String request(HttpServerExchange exchange, Set<String> allowedOrigins) {
+        return request(exchange, allowedOrigins, null);
+    }
+
+    /** Native read-only browser requests can use a bound cookie plus trusted browser provenance. */
+    public static String request(HttpServerExchange exchange, Set<String> allowedOrigins, String boundCookie) {
         rejectQuery(exchange);
         String header = single(exchange, HEADER);
+        if (header != null && header.isBlank()) header = null;
         String protocols = single(exchange, PROTOCOL);
-        String key = single(exchange, new HttpString("Sec-WebSocket-Key"));
-        String version = single(exchange, new HttpString("Sec-WebSocket-Version"));
-        boolean websocket = key != null || version != null || protocols != null
-                || "websocket".equalsIgnoreCase(exchange.getRequestHeaders().getFirst(Headers.UPGRADE));
+        String key = single(exchange, KEY);
+        String version = single(exchange, VERSION);
+        boolean websocket = isWebsocket(exchange);
         String protocolToken = null;
         List<String> applicationProtocols = new ArrayList<>();
         if (websocket) {
@@ -94,12 +146,13 @@ public final class Csrf {
             String upgrade = exchange.getRequestHeaders().getFirst(Headers.UPGRADE);
             if (upgrade != null && !"websocket".equalsIgnoreCase(upgrade)) throw invalid();
             String origin = single(exchange, Headers.ORIGIN);
-            if (origin == null || !origin(origin) || !allowedOrigins.contains(origin)) throw invalid();
+            String normalized = origin == null ? null : origin(origin);
+            if (normalized == null || !allowedOrigins.contains(normalized)) throw invalid();
             if (protocols != null) {
                 if (protocols.length() > 4096) throw invalid();
                 for (String protocol : protocols.split(",", -1)) {
                     protocol = protocol.trim();
-                    if (!protocol.matches("[!#$%&'*+.^_`|~0-9A-Za-z-]+")) throw invalid();
+                    if (!SUBPROTOCOL.matcher(protocol).matches()) throw invalid();
                     if (protocol.startsWith("csrf.")) {
                         if (protocolToken != null) throw invalid();
                         protocolToken = protocol.substring(5);
@@ -112,7 +165,9 @@ public final class Csrf {
         }
         if (header != null && protocolToken != null && !equal(header, protocolToken)) throw invalid();
         String value = header != null ? header : protocolToken;
-        if (!bounded(value)) throw invalid();
+        if (value == null && !websocket && (Methods.GET.equals(exchange.getRequestMethod()) || Methods.HEAD.equals(exchange.getRequestMethod()))
+                && trustedBrowser(exchange, allowedOrigins)) value = boundCookie;
+        if (!bounded(value)) throw value == null || value.isBlank() ? new Failure("ERR10036") : invalid();
         // Downstream handshake handlers must never select or echo the credential subprotocol.
         if (websocket && protocols != null) {
             if (applicationProtocols.isEmpty()) exchange.getRequestHeaders().remove(PROTOCOL);
@@ -129,6 +184,15 @@ public final class Csrf {
     }
 
     public static IllegalArgumentException invalid() {
-        return new IllegalArgumentException("Invalid CSRF transport or value");
+        return new Failure("ERR10039");
+    }
+
+    public static String code(IllegalArgumentException error) {
+        return error instanceof Failure failure ? failure.code : "ERR10039";
+    }
+
+    private static final class Failure extends IllegalArgumentException {
+        private final String code;
+        private Failure(String code) { super("Invalid CSRF transport or value"); this.code = code; }
     }
 }

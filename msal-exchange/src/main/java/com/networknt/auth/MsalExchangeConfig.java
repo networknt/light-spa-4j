@@ -1,6 +1,7 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.config.schema.ArrayField;
 import com.networknt.auth.csrf.Csrf;
 import com.networknt.config.schema.ConfigSchema; // REQUIRED IMPORT
 import com.networknt.config.schema.OutputFormat; // REQUIRED IMPORT
@@ -10,6 +11,7 @@ import com.networknt.config.schema.StringField; // REQUIRED IMPORT
 
 import com.networknt.server.ModuleRegistry;
 import java.util.Map;
+import java.util.Set;
 
 // <<< REQUIRED ANNOTATION FOR SCHEMA GENERATION >>>
 /**
@@ -47,11 +49,10 @@ public class MsalExchangeConfig {
     // --- Annotated Fields ---
     // --- Annotated Fields ---
     private final Map<String, Object> mappedConfig;
-    @StringField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins",
-            description = "Exact comma-separated WebSocket Origins; empty disables cookie-authenticated WebSockets.", defaultValue = "")
-    private String websocketAllowedOrigins = "";
-    private java.util.Set<String> csrfOrigins = java.util.Set.of();
-    public java.util.Set<String> getWebsocketAllowedOrigins() { return csrfOrigins; }
+    @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
+            description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
+    private Set<String> websocketAllowedOrigins = Set.of();
+    public Set<String> getWebsocketAllowedOrigins() { return websocketAllowedOrigins; }
     private static volatile MsalExchangeConfig instance;
 
     @BooleanField(
@@ -209,7 +210,7 @@ public class MsalExchangeConfig {
 
 
     private void setConfigData() {
-        csrfOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
+        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
         // Load fields using Config utilities, consistent with the framework's internal loading
         Object object = mappedConfig.get(ENABLED);
         if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);

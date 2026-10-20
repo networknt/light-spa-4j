@@ -174,6 +174,45 @@ class MsalAuthHandlerTest {
     }
 
     @Test
+    void trustedBrowserCanClearUnsignedRemovedKeyAndOrphanedSessions() throws Exception {
+        String removed = new com.networknt.auth.csrf.SessionCsrf("removed", "removed=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA").issue("entra-token");
+        for (String cookies : List.of("accessToken=entra-token; csrf=old-unsigned", "accessToken=entra-token; csrf=" + removed, "csrf=orphan")) {
+            for (String origin : List.of("https://evil.test", "https://portal.test")) {
+                var request = HttpRequest.newBuilder(baseUri.resolve("/auth/ms/logout"))
+                        .header("Cookie", cookies).header("Origin", origin).POST(HttpRequest.BodyPublishers.noBody()).build();
+                var response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                Assertions.assertEquals(origin.endsWith("evil.test") ? 401 : 204, response.statusCode());
+                if (response.statusCode() == 204) Assertions.assertEquals(2, response.headers().allValues("Set-Cookie").size());
+                else Assertions.assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void nativeReadOnlyRequestsStillRequireSessionBindingAndTrustedBrowser() throws Exception {
+        String csrf = csrf();
+        for (String origin : List.of("https://portal.test", "https://evil.test")) {
+            var request = HttpRequest.newBuilder(baseUri.resolve("/api"))
+                    .header("Cookie", "accessToken=entra-token; csrf=" + csrf).header("Origin", origin).GET().build();
+            Assertions.assertEquals(origin.endsWith("evil.test") ? 401 : 200, CLIENT.send(request, HttpResponse.BodyHandlers.ofString()).statusCode());
+        }
+        var planted = HttpRequest.newBuilder(baseUri.resolve("/api"))
+                .header("Cookie", "accessToken=entra-token; csrf=planted").header("Sec-Fetch-Site", "same-origin").GET().build();
+        Assertions.assertEquals(401, CLIENT.send(planted, HttpResponse.BodyHandlers.ofString()).statusCode());
+        var unsafe = HttpRequest.newBuilder(baseUri.resolve("/api"))
+                .header("Cookie", "accessToken=entra-token; csrf=" + csrf).header("Origin", "https://portal.test")
+                .POST(HttpRequest.BodyPublishers.noBody()).build();
+        Assertions.assertEquals(401, CLIENT.send(unsafe, HttpResponse.BodyHandlers.ofString()).statusCode());
+    }
+
+    @Test
+    void anonymousQueriesAndPreflightRemainOutsideSessionCsrfValidation() throws Exception {
+        Assertions.assertEquals(200, send("/api?csrf=ordinary-data", "GET", null, null).statusCode());
+        Assertions.assertEquals(200, send("/api?csrf=ignored", "OPTIONS", "Cookie", "accessToken=entra-token; csrf=legacy").statusCode());
+        Assertions.assertEquals(200, send("/auth/ms/login?csrf=login-data", "POST", "Authorization", "Bearer entra-token").statusCode());
+    }
+
+    @Test
     void cookieLifetimeIsBoundedByTokenExpiry() {
         JwtClaims longLived = new JwtClaims();
         longLived.setExpirationTimeMinutesInTheFuture(10);

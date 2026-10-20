@@ -88,7 +88,8 @@ class MsalProductionConfigTest {
 
     @Test
     void disabledHandlerIgnoresPolicySettings() {
-        Map<String, Object> map = new HashMap<>(Map.of("enabled", false, "requiredScopes", 42, "tenantId", 7));
+        Map<String, Object> map = new HashMap<>(Map.of("enabled", false, "requiredScopes", 42, "tenantId", 7,
+                "websocketAllowedOrigins", 42, "csrfSigningKeys", 42));
         MsalAuthConfig config = assertDoesNotThrow(() -> new MsalAuthConfig(map));
         assertFalse(config.isEnabled());
         assertNull(config.getTokenPolicy());
@@ -126,6 +127,12 @@ class MsalProductionConfigTest {
 
         Map<String, Object> rotated = validMap();
         rotated.put("csrfSigningKeyId", "next");
+        rotated.put("csrfSigningKeys", validMap().get("csrfSigningKeys") + ",next=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        MsalAuthConfig overlap = MsalAuthConfig.loadSnapshot(rotated);
+        assertTrue(overlap.getSessionCsrf().verify(value, "session"));
+        assertTrue(overlap.getSessionCsrf().verify(overlap.getSessionCsrf().issue("session"), "session"));
+
+        rotated = new HashMap<>(rotated);
         rotated.put("csrfSigningKeys", "next=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
         MsalAuthConfig next = MsalAuthConfig.loadSnapshot(rotated);
         assertFalse(next.getSessionCsrf().verify(value, "session"));
