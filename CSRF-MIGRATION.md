@@ -180,7 +180,10 @@ allowlist of exact wrapped descriptions is terminal, never `ERR10052` generally.
 These strings are a legacy compatibility adapter, not a versioned upstream
 protocol. To remove this wording dependency, light-oauth must return structured
 Status JSON with `404 / ERR12029` for terminal refresh rejection. This Java PR
-already accepts that structured contract but does not change the Rust provider. Generic
+already accepts that structured contract but does not change the Rust provider.
+The legacy allowlist stores plain strings at class load; wrapping them with the
+application's Status template happens per request. A missing template therefore
+cannot poison RefreshTokenSingleFlight's class initialization. Generic
 401s such as `ERR10053` from the OAuth client are **not** terminal: that client uses
 401 for network errors too. Unrecognized provider error shapes remain temporary
 rather than destroying a session.
@@ -231,7 +234,10 @@ Trusted-browser cleanup can clear only confirmed unusable sessions; uncertainty
 returns 503 with cookies preserved.
 
 Confirmation retains one process-local JWKS snapshot for five seconds, including
-partial/failed results, and serializes refresh of that snapshot. Configuration
+partial/failed results. Concurrent callers share one in-flight confirmation future;
+network calls run outside the class monitor. Waiters stop after five seconds and
+return an uncertain result (503, preserving cookies) without canceling the owner.
+The owner still uses the OAuth client's per-provider request timeouts. Configuration
 replacement invalidates it. The snapshot contains key IDs from provider responses,
 not a growing map of attacker-supplied IDs, so different missing IDs share the same
 confirmation fetches. The normal verifier's initial unknown-key lookup remains;

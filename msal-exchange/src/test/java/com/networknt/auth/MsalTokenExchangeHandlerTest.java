@@ -62,6 +62,9 @@ public class MsalTokenExchangeHandlerTest {
 
     private static volatile boolean jwksUnavailable;
     private static volatile boolean secondaryJwksUnavailable;
+    private static volatile CountDownLatch secondaryEntered;
+    private static volatile CountDownLatch secondaryRelease;
+    private static final java.util.concurrent.atomic.AtomicInteger secondaryRequests = new java.util.concurrent.atomic.AtomicInteger();
     private static volatile boolean secondaryHasRetiredKey;
     private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
 
@@ -96,7 +99,12 @@ public class MsalTokenExchangeHandlerTest {
                     .addHttpsListener(5882, "localhost", sslContext)
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(Handlers.header(Handlers.path()
-                                    .addPrefixPath("/secondary/keys", exchange -> {
+                                    .addPrefixPath("/secondary/keys", initial -> initial.dispatch(exchange -> {
+                                        secondaryRequests.incrementAndGet();
+                                        if (secondaryEntered != null) {
+                                            secondaryEntered.countDown();
+                                            if (!secondaryRelease.await(8, TimeUnit.SECONDS)) throw new IllegalStateException("Test release timed out");
+                                        }
                                         if (secondaryJwksUnavailable) {
                                             exchange.setStatusCode(503);
                                             exchange.getResponseSender().send("Secondary JWKS unavailable");
@@ -105,7 +113,7 @@ public class MsalTokenExchangeHandlerTest {
                                             String keys = "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}";
                                             exchange.getResponseSender().send(secondaryHasRetiredKey ? keys.replace("Tj_l_tIBTginOtQbL0Pv5w", "retired-key") : keys);
                                         }
-                                    })
+                                    }))
                                     .addPrefixPath("/oauth2/N2CMw0HGQXeLvC1wBfln2A/keys", (exchange) -> {
                                         keyRequests.incrementAndGet();
                                         if (jwksUnavailable) {
@@ -658,6 +666,39 @@ public class MsalTokenExchangeHandlerTest {
         token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(header.getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 + "." + parts[1] + "." + parts[2];
         return token;
+    }
+
+    @Test
+    public void testKeyConfirmationWaiterTimeoutDoesNotCancelOwner() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
+        secondaryEntered = new CountDownLatch(1);
+        secondaryRelease = new CountDownLatch(1);
+        int before = secondaryRequests.get();
+        var owner = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try { return sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test"); }
+            catch (Exception e) { throw new java.util.concurrent.CompletionException(e); }
+        });
+        try {
+            Assertions.assertTrue(secondaryEntered.await(3, TimeUnit.SECONDS));
+            ClientResponse waiter = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
+            Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, waiter.getResponseCode());
+            Assertions.assertNull(waiter.getResponseHeaders().get(Headers.SET_COOKIE));
+            Assertions.assertFalse(owner.isDone(), "waiter must finish while owner remains blocked");
+            Assertions.assertEquals(before + 1, secondaryRequests.get(), "one shared confirmation lookup");
+        } finally {
+            secondaryRelease.countDown();
+        }
+        try {
+            Assertions.assertEquals(StatusCodes.NO_CONTENT, owner.get(4, TimeUnit.SECONDS).getResponseCode());
+            Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/auth/ms/logout", cookies,
+                    null, "https://portal.test").getResponseCode());
+            Assertions.assertEquals(before + 1, secondaryRequests.get(), "completed owner snapshot remains cached");
+        } finally {
+            secondaryEntered = null;
+            secondaryRelease = null;
+            LogoutBinding.clearKeySnapshot();
+        }
     }
 
     @Test

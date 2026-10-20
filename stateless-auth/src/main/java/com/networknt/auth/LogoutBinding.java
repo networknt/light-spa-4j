@@ -10,6 +10,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeoutException;
 import com.networknt.client.oauth.OauthHelper;
 import com.networknt.client.oauth.TokenKeyRequest;
 import org.jose4j.jws.JsonWebSignature;
@@ -28,12 +30,14 @@ final class LogoutBinding {
     // Confirmation only: normal verification and its key cache remain authoritative.
     private static final long KEY_SNAPSHOT_TTL = TimeUnit.SECONDS.toNanos(5);
     private static volatile KeySnapshot keySnapshot;
+    private static KeyLookup keyLookup;
+    private static final long KEY_WAIT_MILLIS = 5000;
 
     private LogoutBinding() { }
 
-    static void clearKeySnapshot() { keySnapshot = null; }
+    static synchronized void clearKeySnapshot() { keySnapshot = null; }
 
-    private static synchronized State confirmMissingKey(String kid) throws Exception {
+    private static State confirmMissingKey(String kid) throws Exception {
         ClientConfig config = ClientConfig.get();
         List<AuthServerConfig> providers = new ArrayList<>();
         if (config.getOAuth().isMultipleAuthServers()) {
@@ -46,29 +50,67 @@ final class LogoutBinding {
         } else {
             providers.add(null); // TokenKeyRequest's single-server configuration.
         }
-        KeySnapshot cached = keySnapshot;
-        if (cached == null || cached.config != config || !cached.providers.equals(providers)
-                || System.nanoTime() >= cached.expiresAt) {
-            Set<String> kids = new HashSet<>();
-            boolean complete = true;
-            for (AuthServerConfig provider : providers) {
-                try {
-                    // Fetch the whole set once, independently of the untrusted key ID.
-                    JsonWebKeySet keys = new JsonWebKeySet(OauthHelper.getKey(new TokenKeyRequest(null, true, provider)));
-                    for (var key : keys.getJsonWebKeys()) if (key.getKeyId() != null) kids.add(key.getKeyId());
-                } catch (Exception lookupFailure) {
-                    complete = false; // Absence at one provider proves nothing about an unavailable one.
-                }
+        providers = Collections.unmodifiableList(new ArrayList<>(providers));
+        KeyLookup lookup;
+        boolean owner = false;
+        synchronized (LogoutBinding.class) {
+            KeySnapshot cached = keySnapshot;
+            if (cached != null && cached.config == config && cached.providers.equals(providers)
+                    && System.nanoTime() < cached.expiresAt) return cached.state(kid);
+            if (keyLookup == null) {
+                keyLookup = new KeyLookup(config, providers, new CompletableFuture<>());
+                owner = true;
+            } else if (keyLookup.config != config || !keyLookup.providers.equals(providers)) {
+                // Never queue a second configuration's network work behind the current lookup.
+                return State.UNKNOWN;
             }
-            cached = new KeySnapshot(config, Collections.unmodifiableList(new ArrayList<>(providers)),
-                    Set.copyOf(kids), complete, System.nanoTime() + KEY_SNAPSHOT_TTL);
-            keySnapshot = cached; // Cache failed/partial confirmations too, to bound retries.
+            lookup = keyLookup;
         }
-        return cached.complete && !cached.kids.contains(kid) ? State.UNUSABLE : State.UNKNOWN;
+        if (owner) {
+            try {
+                KeySnapshot snapshot = fetchKeys(config, providers);
+                synchronized (LogoutBinding.class) { keySnapshot = snapshot; }
+                lookup.future.complete(snapshot);
+            } catch (Exception e) {
+                lookup.future.completeExceptionally(e);
+                throw e;
+            } finally {
+                // No HTTP request or future wait runs under the class monitor.
+                synchronized (LogoutBinding.class) { if (keyLookup == lookup) keyLookup = null; }
+                if (!lookup.future.isDone()) lookup.future.completeExceptionally(new IllegalStateException("Key lookup aborted"));
+            }
+        }
+        try {
+            return lookup.future.get(KEY_WAIT_MILLIS, TimeUnit.MILLISECONDS).state(kid);
+        } catch (TimeoutException e) {
+            return State.UNKNOWN; // A late waiter must not cancel or replace the owner.
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return State.UNKNOWN;
+        }
     }
 
+    private static KeySnapshot fetchKeys(ClientConfig config, List<AuthServerConfig> providers) {
+        Set<String> kids = new HashSet<>();
+        boolean complete = true;
+        for (AuthServerConfig provider : providers) {
+            try {
+                JsonWebKeySet keys = new JsonWebKeySet(OauthHelper.getKey(new TokenKeyRequest(null, true, provider)));
+                for (var key : keys.getJsonWebKeys()) if (key.getKeyId() != null) kids.add(key.getKeyId());
+            } catch (Exception lookupFailure) {
+                complete = false; // Absence at one provider proves nothing about an unavailable one.
+            }
+        }
+        return new KeySnapshot(config, providers, Set.copyOf(kids), complete, System.nanoTime() + KEY_SNAPSHOT_TTL);
+    }
+
+    private record KeyLookup(ClientConfig config, List<AuthServerConfig> providers,
+                             CompletableFuture<KeySnapshot> future) { }
+
     private record KeySnapshot(ClientConfig config, List<AuthServerConfig> providers,
-                               Set<String> kids, boolean complete, long expiresAt) { }
+                               Set<String> kids, boolean complete, long expiresAt) {
+        State state(String kid) { return complete && !kids.contains(kid) ? State.UNUSABLE : State.UNKNOWN; }
+    }
 
     static State classify(JwtVerifier verifier, String token, String cookieCsrf) {
         if (token == null || token.isBlank() || cookieCsrf == null || cookieCsrf.isBlank()) return State.UNUSABLE;

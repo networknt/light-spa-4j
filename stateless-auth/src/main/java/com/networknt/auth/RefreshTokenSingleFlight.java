@@ -21,11 +21,11 @@ import java.util.concurrent.TimeUnit;
 public final class RefreshTokenSingleFlight {
     // Compatibility contract for current Rust light-oauth's unstructured refresh errors.
     // Keep this finite: ERR10052 also wraps transient failures. Prefer ERR12029 JSON.
-    private static final Set<String> LEGACY_TERMINAL_DESCRIPTIONS = Set.of(
-            new Status("ERR10052", "Refresh token not found").getDescription(),
-            new Status("ERR10052", "Client ID mismatch").getDescription(),
-            new Status("ERR10052", "Provider ID mismatch").getDescription(),
-            new Status("ERR10052", "Auth host mismatch").getDescription());
+    private static final Set<String> LEGACY_TERMINAL_MESSAGES = Set.of(
+            "Refresh token not found",
+            "Client ID mismatch",
+            "Provider ID mismatch",
+            "Auth host mismatch");
 
     private static final long REFRESH_WAIT_TIMEOUT_MILLIS = 5000L;
     private static final long REFRESH_COMPLETED_CACHE_MILLIS = 3000L;
@@ -156,9 +156,14 @@ public final class RefreshTokenSingleFlight {
         /** OauthHelper loses the HTTP status of non-JSON responses. Match only the exact
          * supported Rust provider response after its Status wrapping, never ERR10052 alone. */
         public boolean isInvalidRefreshToken() {
-            return error != null && ((error.getStatusCode() == 404 && "ERR12029".equals(error.getCode()))
-                    || ("ERR10052".equals(error.getCode())
-                    && error.getDescription() != null && LEGACY_TERMINAL_DESCRIPTIONS.contains(error.getDescription())));
+            if (error == null) return false;
+            if (error.getStatusCode() == 404 && "ERR12029".equals(error.getCode())) return true;
+            if (!"ERR10052".equals(error.getCode()) || error.getDescription() == null) return false;
+            // Resolve the application's status template per request, never during class initialization.
+            for (String message : LEGACY_TERMINAL_MESSAGES) {
+                if (error.getDescription().equals(new Status("ERR10052", message).getDescription())) return true;
+            }
+            return false;
         }
     }
 
