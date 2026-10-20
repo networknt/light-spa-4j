@@ -24,7 +24,8 @@ any Microsoft-signed token. Disabled handlers do not require a policy.
    claims.
 4. Explicitly disable the shared JWT cache and restart the gateway. Existing
    cookies must satisfy the new policy on their next request; users with
-   incompatible tokens must sign in again.
+   incompatible tokens must sign in again. Rejected cookie authentication clears
+   both cookies; CSRF failures and server-side verifier failures keep them.
 
 Example `msal-auth.yml` for v2 access tokens (replace all example UUIDs):
 
@@ -53,6 +54,14 @@ In `security-msal.yml`, retain the existing signing-key configuration and set:
 enableJwtCache: false
 ```
 
+The effective cache setting must be false. An omitted setting also passes when
+the shared configuration default is false; setting it explicitly is recommended.
+`requiredScopes` and `allowedClientIds` accept native arrays, JSON-array strings
+and comma-separated strings through `values.yml` or environment substitution.
+The shipped `.yml` includes all required placeholders; the `.yaml` template and
+JSON schema include the same policy fields. Empty defaults fail enabled-policy
+validation and are permitted when the handler is disabled.
+
 The verifier's shared cache can return claims verified under another trust
 context and skips audience validation on cache hits. This handler rejects
 cache-enabled configuration until the shared cache is safe for multiple
@@ -79,11 +88,19 @@ as claims. `bootstrapFromKeyService` does not replace the application policy.
 - A nonempty subject is required. Tokens declaring `idtyp: app` are rejected.
   The `typ: JWT` header does not distinguish ID tokens from access tokens;
   the audience and delegated scope policy establish the token's purpose.
-- Expiration and not-before times are enforced with the configured
-  `security-msal.jwt.clockSkewInSeconds` allowance.
-- Claim failures return a generic 401 and never create session cookies or
-  forward the token. Downstream APIs remain responsible for operation-specific
-  authorization.
+- `JwtVerifier` enforces expiration with the configured
+  `security-msal.jwt.clockSkewInSeconds` allowance. The application policy
+  applies that same allowance to not-before; it does not duplicate expiry checking.
+- Invalid tokens return `401 / ERR10000 / INVALID_AUTH_TOKEN`; expired tokens
+  return `401 / ERR10001 / AUTH_TOKEN_EXPIRED` so the SPA can reacquire a token.
+  Responses never include token details. Logs use bounded policy-failure categories.
+  Unexpected resolver/programming failures retain server-error behavior instead of
+  becoming 401 responses. Rejected cookie sessions are cleared, while invalid
+  login tokens do not create cookies or reach downstream handlers.
+- A failed configuration snapshot remains fail-closed and its failure is cached,
+  avoiding repeated parsing and locking on every request. Installing a corrected
+  configuration-cache snapshot allows recovery. Downstream APIs remain responsible
+  for operation-specific authorization.
 
 ## Local validation
 

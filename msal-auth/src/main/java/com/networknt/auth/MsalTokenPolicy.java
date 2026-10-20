@@ -10,12 +10,19 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 /** Application trust checks applied after signature verification on every request. */
 final class MsalTokenPolicy {
+    private static final Pattern SPACE = Pattern.compile(" +");
+    static final class RejectedTokenException extends Exception {
+        private final String category;
+        RejectedTokenException(String category) { super("Microsoft token rejected: " + category); this.category = category; }
+        String category() { return category; }
+    }
     private final String tenantId;
     private final String issuer;
-    private final String audience;
+    private final List<String> audiences;
     private final String version;
     private final Set<String> requiredScopes;
     private final Set<String> allowedClientIds;
@@ -40,7 +47,7 @@ final class MsalTokenPolicy {
         this.version = path.endsWith("/v2.0") ? "2.0" : "1.0";
         this.tenantId = tenantId;
         this.issuer = issuer;
-        this.audience = audience;
+        this.audiences = List.of(audience);
         if (requiredScopes == null || requiredScopes.isEmpty())
             throw new IllegalArgumentException("msal-auth.requiredScopes must not be empty");
         for (String scope : requiredScopes) {
@@ -55,29 +62,29 @@ final class MsalTokenPolicy {
         this.allowedClientIds = Set.copyOf(allowedClientIds);
     }
 
-    void validate(JwtClaims claims, int clockSkewSeconds) throws MalformedClaimException {
-        if (!issuer.equals(claims.getIssuer())
-                || !tenantId.equals(claims.getStringClaimValue("tid"))
-                || !version.equals(claims.getStringClaimValue("ver"))
-                || !List.of(audience).equals(claims.getAudience())) {
-            throw new IllegalArgumentException("Invalid Microsoft token trust claims");
-        }
+    void validate(JwtClaims claims, int clockSkewSeconds) throws MalformedClaimException, RejectedTokenException {
+        if (!issuer.equals(claims.getIssuer())) throw new RejectedTokenException("issuer");
+        if (!tenantId.equals(claims.getStringClaimValue("tid"))) throw new RejectedTokenException("tenant");
+        if (!version.equals(claims.getStringClaimValue("ver"))) throw new RejectedTokenException("version");
+        if (!audiences.equals(claims.getAudience())) throw new RejectedTokenException("audience");
         String client = claims.getStringClaimValue("2.0".equals(version) ? "azp" : "appid");
         String scopes = claims.getStringClaimValue("scp");
-        if (!allowedClientIds.contains(client == null ? "" : client)
-                || scopes == null || scopes.isBlank()
-                || !new HashSet<>(Arrays.asList(scopes.split(" +"))).containsAll(requiredScopes)
-                || "app".equals(claims.getStringClaimValue("idtyp"))
-                || claims.getSubject() == null || claims.getSubject().isBlank()) {
-            throw new IllegalArgumentException("Invalid Microsoft delegated access token");
-        }
-        // The shared verifier uses a large time allowance internally; enforce nbf here as well.
-        long now = NumericDate.now().getValue();
-        long skew = Math.max(0, clockSkewSeconds);
-        if (claims.getExpirationTime() == null || claims.getExpirationTime().getValue() <= now - skew
-                || (claims.getNotBefore() != null && claims.getNotBefore().getValue() > now + skew)) {
-            throw new IllegalArgumentException("Invalid Microsoft token lifetime");
-        }
+        if (!allowedClientIds.contains(client == null ? "" : client)) throw new RejectedTokenException("client");
+        if (scopes == null || scopes.isBlank()
+                || !new HashSet<>(Arrays.asList(SPACE.split(scopes))).containsAll(requiredScopes))
+            throw new RejectedTokenException("scopes");
+        if ("app".equals(claims.getStringClaimValue("idtyp"))
+                || claims.getSubject() == null || claims.getSubject().isBlank())
+            throw new RejectedTokenException("token_purpose");
+        // Expiration is enforced by JwtVerifier. Its large internal time allowance
+        // does not enforce nbf adequately, so apply the configured allowance here.
+        validateNotBefore(claims, NumericDate.now().getValue(), clockSkewSeconds);
+    }
+
+    static void validateNotBefore(JwtClaims claims, long now, int clockSkewSeconds)
+            throws MalformedClaimException, RejectedTokenException {
+        if (claims.getNotBefore() != null && claims.getNotBefore().getValue() > now + Math.max(0, clockSkewSeconds))
+            throw new RejectedTokenException("not_before");
     }
 
     private static void requireText(String value, String field) {

@@ -1,6 +1,7 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.config.JsonMapper;
 import com.networknt.config.schema.BooleanField;
 import com.networknt.config.schema.IntegerField;
 import com.networknt.config.schema.StringField;
@@ -9,11 +10,18 @@ import com.networknt.server.ModuleRegistry;
 
 import java.util.Map;
 import java.util.List;
+import java.util.Arrays;
 
 /** Configuration for the direct MSAL BFF authentication handler. */
 public class MsalAuthConfig {
     public static final String CONFIG_NAME = "msal-auth";
-    private static volatile MsalAuthConfig instance;
+    private static volatile LoadState state;
+    private record LoadState(Map<String, Object> source, MsalAuthConfig config, RuntimeException failure) {
+        MsalAuthConfig result() {
+            if (failure != null) throw failure;
+            return config;
+        }
+    }
     private final Map<String, Object> mappedConfig;
 
     @BooleanField(configFieldName = "enabled", externalizedKeyName = "enabled",
@@ -63,7 +71,11 @@ public class MsalAuthConfig {
     public MsalAuthConfig() { this(CONFIG_NAME); }
 
     private MsalAuthConfig(String configName) {
-        mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+        this(Config.getInstance().getJsonMapConfig(configName));
+    }
+
+    MsalAuthConfig(Map<String, Object> config) {
+        mappedConfig = config;
         setConfigData();
     }
 
@@ -72,14 +84,26 @@ public class MsalAuthConfig {
     public static MsalAuthConfig load(String configName) {
         if (!CONFIG_NAME.equals(configName)) return new MsalAuthConfig(configName);
         Map<String, Object> config = Config.getInstance().getJsonMapConfig(configName);
-        if (instance != null && instance.mappedConfig == config) return instance;
+        return loadSnapshot(config);
+    }
+
+    static MsalAuthConfig loadSnapshot(Map<String, Object> config) {
+        LoadState current = state;
+        if (current != null && current.source == config) return current.result();
         synchronized (MsalAuthConfig.class) {
-            config = Config.getInstance().getJsonMapConfig(configName);
-            if (instance != null && instance.mappedConfig == config) return instance;
-            instance = new MsalAuthConfig(configName);
+            current = state;
+            if (current != null && current.source == config) return current.result();
+            MsalAuthConfig loaded;
+            try {
+                loaded = new MsalAuthConfig(config);
+            } catch (RuntimeException e) {
+                state = new LoadState(config, null, e);
+                throw e;
+            }
+            state = new LoadState(config, loaded, null);
             ModuleRegistry.registerModule(CONFIG_NAME, MsalAuthConfig.class.getName(),
                     Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
-            return instance;
+            return loaded;
         }
     }
 
@@ -116,6 +140,19 @@ public class MsalAuthConfig {
     private List<String> stringListSetting(String name) {
         Object value = mappedConfig.get(name);
         if (value == null) return List.of();
+        if (value instanceof String text) {
+            text = text.trim();
+            if (text.isEmpty()) return List.of();
+            if (text.startsWith("[")) {
+                try {
+                    value = JsonMapper.fromJson(text, List.class);
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("msal-auth." + name + " must be an array or comma-separated string");
+                }
+            } else {
+                value = Arrays.stream(text.split(",", -1)).map(String::trim).toList();
+            }
+        }
         if (!(value instanceof List<?> list) || list.stream().anyMatch(item -> !(item instanceof String)))
             throw new IllegalArgumentException("msal-auth." + name + " must be a list of strings");
         return list.stream().map(String.class::cast).toList();

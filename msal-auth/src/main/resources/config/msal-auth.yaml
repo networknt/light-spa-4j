@@ -1,5 +1,10 @@
 # Direct MSAL BFF authentication without light-oauth token exchange.
 enabled: true
+tenantId: ""
+issuer: ""
+audience: ""
+requiredScopes: []
+allowedClientIds: []
 loginPath: /auth/ms/login
 logoutPath: /auth/ms/logout
 logoutCsrfEnforced: false

@@ -41,6 +41,7 @@ class MsalTokenValidationTest {
     private static RsaJsonWebKey key;
     private static Undertow server;
     private static URI base;
+    private static JwtVerifier realVerifier;
 
     @BeforeAll
     static void start() throws Exception {
@@ -57,6 +58,7 @@ class MsalTokenValidationTest {
                         (kid, context) -> (jws, nesting) -> key.getPublicKey());
             }
         };
+        realVerifier = verifier;
         MsalAuthHandler.installVerifierForTest(verifier);
         MsalAuthHandler handler = new MsalAuthHandler();
         handler.setNext(exchange -> exchange.getResponseSender().send(
@@ -108,13 +110,24 @@ class MsalTokenValidationTest {
     }
 
     private static void assertRejected(String token) throws Exception {
+        assertRejected(token, "ERR10000");
+    }
+
+    private static void assertRejected(String token, String code) throws Exception {
         // Repeat both paths: an earlier request must never turn rejection into acceptance.
         for (int repeat = 0; repeat < 2; repeat++) {
             for (boolean cookie : new boolean[]{false, true}) {
                 HttpResponse<String> response = request(token, cookie);
                 assertEquals(401, response.statusCode(), response.body());
-                assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
-                assertTrue(response.body().contains("MSAL_TOKEN_INVALID"));
+                List<String> cookies = response.headers().allValues("Set-Cookie");
+                assertEquals(cookie ? 2 : 0, cookies.size());
+                assertTrue(cookies.stream().allMatch(value -> {
+                    var cleared = io.undertow.util.Cookies.parseSetCookieHeader(value);
+                    return cleared.getValue().isEmpty() && cleared.getExpires() != null
+                            && cleared.getExpires().getTime() <= 0;
+                }), cookies.toString());
+                assertTrue(response.body().contains(code));
+                assertTrue(response.body().contains("ERR10001".equals(code) ? "AUTH_TOKEN_EXPIRED" : "INVALID_AUTH_TOKEN"));
                 assertFalse(response.body().contains(token));
                 assertFalse(response.body().contains("local-user"));
             }
@@ -164,7 +177,7 @@ class MsalTokenValidationTest {
         return cases.entrySet().stream().map(entry -> DynamicTest.dynamicTest(entry.getKey(), () -> {
             JwtClaims claims = validClaims();
             entry.getValue().accept(claims);
-            assertRejected(sign(claims, key));
+            assertRejected(sign(claims, key), "expired".equals(entry.getKey()) ? "ERR10001" : "ERR10000");
         }));
     }
 
@@ -197,6 +210,52 @@ class MsalTokenValidationTest {
         assertDoesNotThrow(() -> policy.validate(verified, 0));
         verified.unsetClaim("appid");
         verified.setClaim("azp", CLIENT);
-        assertThrows(IllegalArgumentException.class, () -> policy.validate(verified, 0));
+        assertThrows(MsalTokenPolicy.RejectedTokenException.class, () -> policy.validate(verified, 0));
+    }
+
+    @Test
+    void configuredSkewIsUsedByVerifierAndPolicy() throws Exception {
+        assertEquals(60, SecurityConfig.load("security-msal").getClockSkewInSeconds());
+        JwtClaims claims = validClaims();
+        claims.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() - 20));
+        String token = sign(claims, key);
+        var login = request(token, false);
+        assertEquals(200, login.statusCode(), login.body());
+        var api = request(token, true);
+        assertEquals(200, api.statusCode(), api.body());
+        claims = validClaims();
+        claims.setNotBefore(NumericDate.fromSeconds(NumericDate.now().getValue() + 20));
+        assertEquals(200, request(sign(claims, key), false).statusCode());
+        assertEquals(200, request(sign(claims, key), true).statusCode());
+        claims.setNotBefore(NumericDate.fromSeconds(NumericDate.now().getValue() + 120));
+        assertRejected(sign(claims, key));
+    }
+
+    @Test
+    void resolverProgrammingErrorRemainsServerFailureAndKeepsCookies() throws Exception {
+        MsalAuthHandler.installVerifierForTest(new JwtVerifier(SecurityConfig.load("security-msal")) {
+            @Override public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean isToken,
+                    String pathPrefix, String requestPath, List<String> services) {
+                throw new NumberFormatException("resolver configuration is invalid");
+            }
+        });
+        try {
+            HttpResponse<String> response = request(sign(validClaims(), key), true);
+            assertEquals(500, response.statusCode());
+            assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+        } finally {
+            MsalAuthHandler.installVerifierForTest(realVerifier);
+        }
+    }
+
+    @Test
+    void csrfFailureKeepsValidSessionCookies() throws Exception {
+        String token = sign(validClaims(), key);
+        HttpResponse<String> response = HTTP.send(HttpRequest.newBuilder(base.resolve("/api"))
+                .header("Cookie", "accessToken=" + token + "; csrf=local-csrf").GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertEquals(401, response.statusCode());
+        assertTrue(response.body().contains("ERR10036"));
+        assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
     }
 }
