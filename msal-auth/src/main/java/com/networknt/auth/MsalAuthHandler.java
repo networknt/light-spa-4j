@@ -36,6 +36,8 @@ public class MsalAuthHandler implements MiddlewareHandler {
     private static final String ACCESS_TOKEN = "accessToken";
     private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
+    private static final String AUTH_TOKEN_EXPIRED = "ERR10001";
+    private static final String INVALID_TOKEN_DESCRIPTION = "Invalid Microsoft access token";
     private static final String CSRF_MISSING = "ERR10036";
     private static final String CSRF_MISMATCH = "ERR10039";
     private static final String LOGOUT_CSRF_INVALID = "ERR11649";
@@ -141,15 +143,25 @@ public class MsalAuthHandler implements MiddlewareHandler {
             config.getTokenPolicy().validate(claims, state.clockSkewSeconds);
             return claims;
         } catch (ExpiredTokenException e) {
-            rejectToken(exchange, config, "expired", "ERR10001", "AUTH_TOKEN_EXPIRED", "Microsoft access token has expired");
+            rejectToken(exchange, config, "expired", AUTH_TOKEN_EXPIRED, "AUTH_TOKEN_EXPIRED", "Microsoft access token has expired");
             return null;
         } catch (MsalTokenPolicy.RejectedTokenException e) {
-            rejectToken(exchange, config, e.category(), INVALID_AUTH_TOKEN, "INVALID_AUTH_TOKEN", "Invalid Microsoft access token");
+            rejectInvalidToken(exchange, config, e.category());
             return null;
-        } catch (InvalidJwtException | VerificationException | MalformedClaimException e) {
-            rejectToken(exchange, config, "signature_or_claims", INVALID_AUTH_TOKEN, "INVALID_AUTH_TOKEN", "Invalid Microsoft access token");
+        } catch (InvalidJwtException | MalformedClaimException e) {
+            rejectInvalidToken(exchange, config, "signature_or_claims");
+            return null;
+        } catch (VerificationException e) {
+            // The signing key could not be resolved (unknown kid or unreachable JWKS endpoint). That can be a
+            // transient server-side failure, so reject the request but keep the session cookies.
+            logger.warn("Microsoft token validation failed category=key_lookup");
+            rejectUnauthorized(exchange, INVALID_AUTH_TOKEN, "INVALID_AUTH_TOKEN", INVALID_TOKEN_DESCRIPTION);
             return null;
         }
+    }
+
+    private void rejectInvalidToken(HttpServerExchange exchange, MsalAuthConfig config, String category) {
+        rejectToken(exchange, config, category, INVALID_AUTH_TOKEN, "INVALID_AUTH_TOKEN", INVALID_TOKEN_DESCRIPTION);
     }
 
     private void rejectToken(HttpServerExchange exchange, MsalAuthConfig config, String category,

@@ -87,6 +87,14 @@ class MsalProductionConfigTest {
     }
 
     @Test
+    void disabledHandlerIgnoresPolicySettings() {
+        Map<String, Object> map = new HashMap<>(Map.of("enabled", false, "requiredScopes", 42, "tenantId", 7));
+        MsalAuthConfig config = assertDoesNotThrow(() -> new MsalAuthConfig(map));
+        assertFalse(config.isEnabled());
+        assertNull(config.getTokenPolicy());
+    }
+
+    @Test
     void notBeforeBoundaryUsesConfiguredSkewAndCategory() throws Exception {
         var claims = validClaims();
         claims.setNotBefore(NumericDate.fromSeconds(1060));

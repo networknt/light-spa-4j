@@ -25,7 +25,8 @@ any Microsoft-signed token. Disabled handlers do not require a policy.
 4. Explicitly disable the shared JWT cache and restart the gateway. Existing
    cookies must satisfy the new policy on their next request; users with
    incompatible tokens must sign in again. Rejected cookie authentication clears
-   both cookies; CSRF failures and server-side verifier failures keep them.
+   both cookies; CSRF failures, signing-key lookup failures (unknown `kid` or an
+   unreachable JWKS endpoint) and server-side verifier failures keep them.
 
 Example `msal-auth.yml` for v2 access tokens (replace all example UUIDs):
 

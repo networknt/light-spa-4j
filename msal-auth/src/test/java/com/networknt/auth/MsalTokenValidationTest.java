@@ -3,6 +3,7 @@ package com.networknt.auth;
 import com.networknt.security.JwtVerifier;
 import com.networknt.exception.ExpiredTokenException;
 import com.networknt.security.SecurityConfig;
+import com.networknt.security.VerificationException;
 import io.undertow.Undertow;
 import io.undertow.util.Headers;
 import org.jose4j.jwk.RsaJsonWebKey;
@@ -243,6 +244,26 @@ class MsalTokenValidationTest {
             HttpResponse<String> response = request(sign(validClaims(), key), true);
             assertEquals(500, response.statusCode());
             assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+        } finally {
+            MsalAuthHandler.installVerifierForTest(realVerifier);
+        }
+    }
+
+    @Test
+    void keyLookupFailureRejectsRequestButKeepsSessionCookies() throws Exception {
+        MsalAuthHandler.installVerifierForTest(new JwtVerifier(SecurityConfig.load("security-msal")) {
+            @Override public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean isToken,
+                    String pathPrefix, String requestPath, List<String> services) {
+                throw new VerificationException("no JWK for kid: local-msal-test");
+            }
+        });
+        try {
+            for (boolean cookie : new boolean[]{true, false}) {
+                HttpResponse<String> response = request(sign(validClaims(), key), cookie);
+                assertEquals(401, response.statusCode(), response.body());
+                assertTrue(response.body().contains("ERR10000"), response.body());
+                assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+            }
         } finally {
             MsalAuthHandler.installVerifierForTest(realVerifier);
         }

@@ -121,12 +121,14 @@ public class MsalAuthConfig {
         value = mappedConfig.get("sessionTimeout");
         if (value != null) sessionTimeout = Config.loadIntegerValue("sessionTimeout", value);
         value = mappedConfig.get("cookieSameSite"); if (value != null) cookieSameSite = (String) value;
+        // A disabled handler needs no trust policy, so its policy settings are not parsed either.
+        if (!enabled) return;
         tenantId = stringSetting("tenantId");
         issuer = stringSetting("issuer");
         audience = stringSetting("audience");
         requiredScopes = stringListSetting("requiredScopes");
         allowedClientIds = stringListSetting("allowedClientIds");
-        if (enabled) tokenPolicy = new MsalTokenPolicy(tenantId, issuer, audience, requiredScopes, allowedClientIds);
+        tokenPolicy = new MsalTokenPolicy(tenantId, issuer, audience, requiredScopes, allowedClientIds);
     }
 
     private String stringSetting(String name) {
