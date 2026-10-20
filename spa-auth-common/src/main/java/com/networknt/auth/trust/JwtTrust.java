@@ -148,14 +148,6 @@ public final class JwtTrust {
         return false;
     }
 
-    /** An OAuth refresh may already be rotated even when publication of its new signing key lags. */
-    public static boolean verificationPending(Throwable failure) {
-        if (unavailable(failure)) return true;
-        for (Throwable cause = failure; cause != null; cause = cause.getCause())
-            if (cause instanceof JwksSource.MissingKey) return true;
-        return false;
-    }
-
     private static InvalidJwtException rejected(String category) {
         return new InvalidJwtException("Token rejected", List.of(new ErrorCodeValidator.Error(0, category)), null);
     }

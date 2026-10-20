@@ -96,6 +96,7 @@ public class StatelessAuthHandlerTest {
     private static volatile boolean uncachedKeys;
     private static volatile String rotatingRefresh;
     private static volatile boolean invalidIssuedPolicy;
+    private static volatile boolean issueUnpublishedKey;
     private static final java.util.concurrent.atomic.AtomicInteger tokenRequests = new java.util.concurrent.atomic.AtomicInteger();
     private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
 
@@ -289,7 +290,7 @@ public class StatelessAuthHandlerTest {
             tokenRequests.incrementAndGet();
             JwtClaims issued = getTestClaims(csrfValue != null ? csrfValue : csrfToken);
             if (invalidIssuedPolicy) issued.setAudience("wrong-provider-audience");
-            String token = getJwt(issued, nextRotatingRefresh == null ? "Tj_l_tIBTginOtQbL0Pv5w" : "rotated-new");
+            String token = getJwt(issued, (nextRotatingRefresh == null && !issueUnpublishedKey) ? "Tj_l_tIBTginOtQbL0Pv5w" : "rotated-new");
             map.put("access_token", token);
             map.put("token_type", "Bearer");
             map.put("refresh_token", nextRotatingRefresh == null ? "fixture-refresh" : nextRotatingRefresh);
@@ -308,6 +309,7 @@ public class StatelessAuthHandlerTest {
         return exchange -> {
             exchange.getResponseHeaders().put(new HttpString("X-Test-Next"), "true");
             if("/api".equals(exchange.getRequestPath())) {
+                    exchange.getResponseHeaders().put(new HttpString("X-Test-Authorization"), exchange.getRequestHeaders().getFirst(Headers.AUTHORIZATION));
                     exchange.getResponseSender().send("OK");
             } else {
                 exchange.setStatusCode(StatusCodes.NO_CONTENT);
@@ -317,22 +319,51 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
+    public void testFreshlyConfirmedMissingKeyIsTerminalForIssuanceAndRecovery() throws Exception {
+        Map<String, Object> original = Config.getInstance().getJsonMapConfig("statelessAuth");
+        issueUnpublishedKey = true;
+        try {
+            Config.getInstance().putInConfigCache("statelessAuth", new java.util.HashMap<>(original));
+            StatelessAuthConfig.load();
+            for (int retry = 0; retry < 2; retry++) {
+                ClientResponse login = sendRequest(Methods.GET, "/authorization?code=missing-key&state=test", null, null);
+                Assertions.assertEquals(StatusCodes.UNAUTHORIZED, login.getResponseCode());
+                Assertions.assertNull(login.getResponseHeaders().get(Headers.SET_COOKIE));
+                Assertions.assertNull(login.getResponseHeaders().getFirst(Headers.RETRY_AFTER));
+                ClientResponse recovery = sendRequest(Methods.POST, "/api", "refreshToken=missing-key-" + retry + "; csrf=stale", null, "https://portal.test");
+                Assertions.assertEquals(StatusCodes.UNAUTHORIZED, recovery.getResponseCode());
+                Assertions.assertNull(recovery.getResponseHeaders().get(Headers.SET_COOKIE));
+                Assertions.assertNull(recovery.getResponseHeaders().getFirst("X-Test-Next"));
+            }
+        } finally {
+            issueUnpublishedKey = false;
+            Config.getInstance().putInConfigCache("statelessAuth", original); StatelessAuthConfig.load();
+        }
+    }
+
+    @Test
     public void testRotatedRefreshSurvivesPendingKeyVerification() throws Exception {
         Map<String, Object> original = Config.getInstance().getJsonMapConfig("statelessAuth");
         try {
-            for (boolean existing : new boolean[]{false, true}) {
+            for (String state : new String[]{"recovery", "valid", "expired"}) {
+                boolean existing = !state.equals("recovery");
+                boolean valid = state.equals("valid");
                 uncachedKeys = true; publishRotatedKey = false; jwksUnavailable = false;
                 Config.getInstance().putInConfigCache("statelessAuth", new java.util.HashMap<>(original));
                 StatelessAuthConfig.load();
                 String csrf = com.networknt.auth.csrf.Csrf.nonce();
-                String oldAccess = getJwt(30, csrf);
+                String oldAccess = getJwt(state.equals("expired") ? -600 : 30, csrf);
                 if (existing) Assertions.assertEquals(StatusCodes.OK, sendRequest(Methods.GET, "/api", "accessToken=" + getJwt(600, csrf) + "; csrf=" + csrf, csrf, "https://portal.test").getResponseCode());
                 String oldRefresh = "rotation-test-" + java.util.UUID.randomUUID(); rotatingRefresh = oldRefresh;
                 jwksUnavailable = true;
                 String originalCookies = "refreshToken=" + oldRefresh + "; csrf=" + csrf + (existing ? "; accessToken=" + oldAccess : "");
                 ClientResponse pending = sendRequest(Methods.POST, "/api", originalCookies, existing ? csrf : null, "https://portal.test");
-                Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, pending.getResponseCode());
-                Assertions.assertNull(pending.getResponseHeaders().getFirst("X-Test-Next"));
+                Assertions.assertEquals(valid ? StatusCodes.OK : StatusCodes.SERVICE_UNAVAILABLE, pending.getResponseCode(), state);
+                Assertions.assertEquals(valid ? "true" : null, pending.getResponseHeaders().getFirst("X-Test-Next"));
+                if (valid) {
+                    Assertions.assertEquals("Bearer " + oldAccess, pending.getResponseHeaders().getFirst("X-Test-Authorization"));
+                    Assertions.assertNull(pending.getResponseHeaders().getFirst(Headers.RETRY_AFTER));
+                }
                 String retained = issuedCookie(pending, "refreshToken");
                 Assertions.assertNotEquals(oldRefresh, retained);
                 Assertions.assertEquals(rotatingRefresh, retained);
@@ -340,7 +371,11 @@ public class StatelessAuthHandlerTest {
                 Assertions.assertEquals(1, cookies.size(), "only opaque refresh credential is retained");
                 Assertions.assertTrue(io.undertow.util.Cookies.parseSetCookieHeader(cookies.get(0)).isHttpOnly());
                 publishRotatedKey = true; jwksUnavailable = false;
-                Thread.sleep(5100); // Exceed the key-failure cooldown and completed-refresh cache.
+                Thread.sleep(existing ? 3100 : 5100); // Exceed the completed-refresh cache; cold recovery also exceeds failure cooldown.
+                // Policy replacement makes publication visible immediately. The source's automatic
+                // reprieve/expiry path is separately covered with a deterministic clock.
+                Config.getInstance().putInConfigCache("statelessAuth", new java.util.HashMap<>(original));
+                StatelessAuthConfig.load();
                 ClientResponse obsolete = sendRequest(Methods.POST, "/api", "refreshToken=" + oldRefresh, null, "https://portal.test");
                 Assertions.assertEquals(StatusCodes.UNAUTHORIZED, obsolete.getResponseCode(), "old rotated credential is genuinely unusable");
                 ClientResponse recovered = sendRequest(Methods.POST, "/api", "refreshToken=" + retained + "; csrf=" + csrf

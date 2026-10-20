@@ -381,10 +381,22 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 "Session state could not be determined. Cookies were preserved; retry later."));
     }
 
+    private void sessionVerificationPending(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "1");
+        setExchangeStatus(exchange, new Status(StatusCodes.SERVICE_UNAVAILABLE, "SPA_SESSION_TEMPORARY_FAILURE",
+                "SESSION_VERIFICATION_PENDING", "Rotated refresh credential retained. Access token not accepted; retry later."));
+    }
+
     private String renewalUnavailable(HttpServerExchange exchange, String originalJwt, long expiresAt) {
+        return renewalUnavailable(exchange, originalJwt, expiresAt, false);
+    }
+
+    private String renewalUnavailable(HttpServerExchange exchange, String originalJwt, long expiresAt, boolean verificationPending) {
         // Recheck after the refresh attempt: it may have outlived the original token.
         if (System.currentTimeMillis() < expiresAt) return originalJwt;
-        sessionUnavailable(exchange);
+        if (verificationPending) sessionVerificationPending(exchange);
+        else sessionUnavailable(exchange);
         return null;
     }
 
@@ -404,7 +416,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 }
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
-                    if (setCookies(exchange, response, result.getCsrf(), config) == null) return null;
+                    CookieIssue issued = issueCookies(exchange, response, result.getCsrf(), config);
+                    if (issued.pending) return renewalUnavailable(exchange, originalJwt, expiresAt, true);
+                    if (issued.scopes == null) return null;
                     if (!Csrf.equal(verifiedCsrf, result.getCsrf())) {
                         sessionRefreshed(exchange);
                         return null;
@@ -457,6 +471,14 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     }
 
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, StatelessAuthConfig config) throws Exception {
+        CookieIssue issue = issueCookies(exchange, response, csrf, config);
+        if (issue.pending) sessionVerificationPending(exchange);
+        return issue.scopes;
+    }
+
+    private record CookieIssue(List<String> scopes, boolean pending) { }
+
+    private CookieIssue issueCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, StatelessAuthConfig config) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
         String remember = response.getRemember();
@@ -484,18 +506,17 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
         } catch (InvalidJwtException e) {
-            if (JwtTrust.verificationPending(e) && refreshToken != null && !refreshToken.isBlank()) {
+            if (JwtTrust.unavailable(e) && refreshToken != null && !refreshToken.isBlank()) {
                 setRefreshCookie(exchange, refreshToken, remember, config);
                 exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
-                exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "1");
-                setExchangeStatus(exchange, new Status(StatusCodes.SERVICE_UNAVAILABLE, "SPA_SESSION_TEMPORARY_FAILURE",
-                        "SESSION_VERIFICATION_PENDING", "Rotated refresh credential retained. Access token not accepted; retry later."));
-            } else rejectToken(exchange, e);
-            return null;
+                return new CookieIssue(null, true);
+            }
+            rejectToken(exchange, e);
+            return new CookieIssue(null, false);
         }
         if (!Csrf.equal(csrf, claims.getStringClaimValue(Constants.CSRF))) {
             rejectCsrf(exchange, "ERR10039");
-            return null;
+            return new CookieIssue(null, false);
         }
 
         // put all the info into a cookie object
@@ -569,7 +590,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setHttpOnly(false)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
-        return scopes == null ? List.of() : scopes;
+        return new CookieIssue(scopes == null ? List.of() : scopes, false);
     }
 
     @Override

@@ -128,12 +128,21 @@ Invalid signature/policy/lifetime returns an authentication 401. Duplicate eligi
 signing keys under one kid are definitive invalid-key errors, not an outage cooldown.
 Transport or malformed-JWKS uncertainty returns 503. Existing access/CSRF cookies
 are preserved. If OAuth has already issued/rotated a refresh credential but the
-returned JWT's key verification is unavailable or pending publication, retain
+returned JWT's key verification is unavailable or publication is uncertain during
+the bounded fresh-set refresh reprieve, retain
 **only the opaque HttpOnly refresh credential** and return 503
 SESSION_VERIFICATION_PENDING. Do not install the unverified JWT or a new CSRF value,
-and do not execute the original request. Retrying uses the retained credential,
-including after the provider's old-token grace expires. A confirmed signature,
-issuer, audience or other application-policy failure never installs new credentials. Logout uses the
+and do not execute the original request for recovery or expired-token renewal.
+During proactive renewal, if the original verified access token is still unexpired
+when the pending result returns, keep that rotated refresh cookie and execute the
+request with the original access token. This normal success has no Retry-After
+header and must not be replayed. Recheck expiration after the attempt; expired
+credentials never use this fallback. Retrying a non-forwarded 503 uses the retained credential,
+including after the provider's old-token grace expires. A freshly confirmed absent signing key is terminal (401), just like a confirmed
+signature, issuer, audience or other policy failure: no new credentials are installed.
+Only transport/parse uncertainty or a skipped refresh during the bounded reprieve
+can produce verification-pending behavior. Successful fresh misses cannot keep
+rotating credentials through a permanent 503 loop. Logout uses the
 same internal authority and policy. An independently invalid or confirmed
 unresolvable session can be cleared with trusted browser provenance; a valid
 session still needs its request-bound CSRF, and lookup uncertainty cannot clear it.
@@ -149,10 +158,13 @@ as soon as a successful refresh replaces the set, and retention never extends wi
 repeated errors. A configuration replacement clears retained state immediately;
 reload with a fresh source to fail closed during emergency key revocation.
 
-Freshness uses the smaller of HTTP max-age and 300 seconds (300-second fallback).
+Successful JWKS responses have a 30-second minimum freshness and a 300-second cap
+(300-second fallback), measured on receipt. This application-level floor also applies
+to no-cache, no-store, max-age=0 and shorter max-age values, preventing per-request
+network fetches. Configuration replacement remains the immediate invalidation path.
 Unknown-kid refreshes on a fresh set have a 30-second reprieve; absence during that
 reprieve is **uncertain (503)**, not an invalid-token decision. Only a newer successful
-HTTP response can establish missing-key evidence. A single bounded, five-second
+HTTP response can establish missing-key evidence. A single bounded, 30-second
 negative entry records the specifically confirmed missing kid; different random
 kids cannot create an unbounded negative cache. Expired key sets can be refreshed
 without the fresh-set reprieve. Failed fetches have a five-second cooldown, without

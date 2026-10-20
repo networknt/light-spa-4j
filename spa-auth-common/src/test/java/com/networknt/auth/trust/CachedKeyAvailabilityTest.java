@@ -85,6 +85,43 @@ class CachedKeyAvailabilityTest {
         assertEquals(1, calls.get()); now.addAndGet(TimeUnit.SECONDS.toNanos(31));
         assertNotNull(trust.verify(rotated, false)); assertEquals(2, calls.get());
     }
+    @Test void uncachedHeadersStillHaveBoundedSuccessfulFetchFrequency() throws Exception {
+        for (String header : List.of("max-age=0", "no-cache", "no-store", "max-age=5")) {
+            AtomicLong now = new AtomicLong(TimeUnit.SECONDS.toNanos(1)); AtomicInteger calls = new AtomicInteger();
+            JwksSource source = new JwksSource("https://keys.example", uri -> {
+                calls.incrementAndGet();
+                return new Response(200, "OK", Map.of("cache-control", List.of(header)), new JsonWebKeySet(oldKey).toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY));
+            }, now::get);
+            JwtTrust trust = new JwtTrust(settings(), JwtTrust.Kind.INTERNAL_ACCESS, source);
+            String known = token(oldKey);
+            for (int i = 0; i < 30; i++) {
+                assertNotNull(trust.verify(known, false));
+                now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+            }
+            assertEquals(1, calls.get(), header);
+            assertNotNull(trust.verify(known, false));
+            assertEquals(2, calls.get(), "fetch resumes at the 30-second floor: " + header);
+        }
+    }
+    @Test void publicationGraceEndsAtFreshConfirmedAbsenceWithoutRetryRatchet() throws Exception {
+        AtomicLong now = new AtomicLong(TimeUnit.SECONDS.toNanos(1)); AtomicInteger calls = new AtomicInteger();
+        JwksSource source = new JwksSource("https://keys.example", uri -> { calls.incrementAndGet(); return response(oldKey); }, now::get);
+        JwtTrust trust = new JwtTrust(settings(), JwtTrust.Kind.INTERNAL_ACCESS, source);
+        trust.verify(token(oldKey), false);
+        String absent = token(newKey);
+        for (int i = 0; i < 30; i++) {
+            assertTrue(JwtTrust.unavailable(assertThrows(InvalidJwtException.class, () -> trust.verify(absent, false))));
+            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+        }
+        for (int i = 0; i < 30; i++) {
+            assertFalse(JwtTrust.unavailable(assertThrows(InvalidJwtException.class, () -> trust.verify(absent, false))));
+            now.addAndGet(TimeUnit.SECONDS.toNanos(1));
+        }
+        assertEquals(2, calls.get());
+        assertFalse(JwtTrust.unavailable(assertThrows(InvalidJwtException.class, () -> trust.verify(absent, false))));
+        assertEquals(3, calls.get(), "a later fresh fetch still missing the key remains terminal");
+    }
+
     @Test void duplicateSigningKidIsDefinitiveAndDoesNotPoisonOtherKeys() throws Exception {
         RsaJsonWebKey duplicate = RsaJwkGenerator.generateJwk(2048); duplicate.setKeyId("old");
         AtomicInteger calls = new AtomicInteger();

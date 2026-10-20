@@ -61,7 +61,7 @@ final class JwksSource implements VerificationKeyResolver {
             if (key != null) return key;
             // Only a successful HTTP fetch newer than this request's snapshot proves absence.
             if (before == null || current.generation > before.generation) {
-                confirmedAbsence = new AbsentKey(kid, current.generation, clock.getAsLong() + FAILURE_RETRY);
+                confirmedAbsence = new AbsentKey(kid, current.generation, clock.getAsLong() + MISS_REPRIEVE);
                 throw new MissingKey();
             }
             throw new UnavailableKey("Signing-key absence has not been refreshed", null);
@@ -122,13 +122,14 @@ final class JwksSource implements VerificationKeyResolver {
         List<String> values = response.getHeaderValues("Cache-Control");
         if (values != null) for (String value : values) for (String directive : value.split(",")) {
             String text = directive.trim();
-            if (text.equalsIgnoreCase("no-cache") || text.equalsIgnoreCase("no-store")) return 0;
+            if (text.equalsIgnoreCase("no-cache") || text.equalsIgnoreCase("no-store")) return 30;
             if (text.toLowerCase(java.util.Locale.ROOT).startsWith("max-age=")) {
                 try { ttl = Math.max(0, Math.min(ttl, Long.parseLong(text.substring(8).replace("\"", "")))); }
                 catch (NumberFormatException ignored) { }
             }
         }
-        return ttl;
+        // Bound successful fetch frequency even for no-cache/max-age=0 endpoints.
+        return Math.max(30, ttl);
     }
 
     private static Key select(List<JsonWebKey> keys, String kid) throws InvalidSigningKey {
