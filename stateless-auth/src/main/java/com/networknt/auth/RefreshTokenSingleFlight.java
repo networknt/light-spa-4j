@@ -6,18 +6,27 @@ import com.networknt.client.oauth.TokenRequest;
 import com.networknt.client.oauth.TokenResponse;
 import com.networknt.monad.Result;
 import com.networknt.status.Status;
-import com.networknt.utility.UuidUtil;
+import com.networknt.auth.csrf.Csrf;
 import org.slf4j.Logger;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public final class RefreshTokenSingleFlight {
+    // Compatibility contract for current Rust light-oauth's unstructured refresh errors.
+    // Keep this finite: ERR10052 also wraps transient failures. Prefer ERR12029 JSON.
+    private static final Set<String> LEGACY_TERMINAL_MESSAGES = Set.of(
+            "Refresh token not found",
+            "Client ID mismatch",
+            "Provider ID mismatch",
+            "Auth host mismatch");
+
     private static final long REFRESH_WAIT_TIMEOUT_MILLIS = 5000L;
     private static final long REFRESH_COMPLETED_CACHE_MILLIS = 3000L;
     private static final int MAX_REFRESH_TRACKED_ENTRIES = 10000;
@@ -28,8 +37,18 @@ public final class RefreshTokenSingleFlight {
     private RefreshTokenSingleFlight() {
     }
 
-    public static RefreshResult renew(String refreshToken, Logger logger) throws Exception {
-        String key = refreshTokenKey(refreshToken);
+    public static RefreshResult recover(String refreshToken, Logger logger) throws Exception {
+        return refresh(refreshToken, null, logger);
+    }
+
+    public static RefreshResult renew(String refreshToken, String verifiedCsrf, Logger logger) throws Exception {
+        if (verifiedCsrf == null || verifiedCsrf.isBlank() || verifiedCsrf.length() > Csrf.MAX_LENGTH)
+            throw new IllegalArgumentException("Missing verified CSRF context");
+        return refresh(refreshToken, verifiedCsrf, logger);
+    }
+
+    private static RefreshResult refresh(String refreshToken, String verifiedCsrf, Logger logger) throws Exception {
+        String key = refreshTokenKey(refreshToken) + ":" + (verifiedCsrf == null ? "recovery" : refreshTokenKey(verifiedCsrf));
         cleanupRefreshCaches();
         CachedRefreshResult cached = refreshCompleted.get(key);
         if (cached != null) {
@@ -45,7 +64,7 @@ public final class RefreshTokenSingleFlight {
         if (existingFuture == null) {
             try {
                 if (logger.isDebugEnabled()) logger.debug("Starting refresh for token hash {}", shortKey(key));
-                RefreshResult result = refreshToken(refreshToken);
+                RefreshResult result = refreshToken(refreshToken, verifiedCsrf);
                 if (result.isSuccess()) {
                     refreshCompleted.put(key, new CachedRefreshResult(result, System.currentTimeMillis() + REFRESH_COMPLETED_CACHE_MILLIS));
                 }
@@ -63,9 +82,9 @@ public final class RefreshTokenSingleFlight {
         return existingFuture.get(REFRESH_WAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     }
 
-    private static RefreshResult refreshToken(String refreshToken) {
+    private static RefreshResult refreshToken(String refreshToken, String verifiedCsrf) {
         TokenRequest tokenRequest = new RefreshTokenRequest();
-        String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
+        String csrf = Csrf.isNonce(verifiedCsrf) ? verifiedCsrf : Csrf.nonce();
         tokenRequest.setCsrf(csrf);
         ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
         Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);
@@ -132,6 +151,19 @@ public final class RefreshTokenSingleFlight {
 
         public boolean isSuccess() {
             return error == null;
+        }
+
+        /** OauthHelper loses the HTTP status of non-JSON responses. Match only the exact
+         * supported Rust provider response after its Status wrapping, never ERR10052 alone. */
+        public boolean isInvalidRefreshToken() {
+            if (error == null) return false;
+            if (error.getStatusCode() == 404 && "ERR12029".equals(error.getCode())) return true;
+            if (!"ERR10052".equals(error.getCode()) || error.getDescription() == null) return false;
+            // Resolve the application's status template per request, never during class initialization.
+            for (String message : LEGACY_TERMINAL_MESSAGES) {
+                if (error.getDescription().equals(new Status("ERR10052", message).getDescription())) return true;
+            }
+            return false;
         }
     }
 

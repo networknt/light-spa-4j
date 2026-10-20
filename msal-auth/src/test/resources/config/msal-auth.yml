@@ -15,3 +15,8 @@ cookiePath: /
 cookieSecure: false
 sessionTimeout: 3600
 cookieSameSite: Lax
+
+# Public deterministic test-only key. Never provision in a deployment.
+csrfSigningKeyId: test
+csrfSigningKeys: test=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+websocketAllowedOrigins: https://portal.test

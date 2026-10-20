@@ -13,6 +13,7 @@
     <name>msal-auth</name>
     <description>MSAL BFF authentication middleware without light-oauth token exchange.</description>
     <dependencies>
+        <dependency><groupId>com.networknt</groupId><artifactId>spa-auth-common</artifactId></dependency>
         <dependency><groupId>com.networknt</groupId><artifactId>config</artifactId></dependency>
         <dependency><groupId>com.networknt</groupId><artifactId>utility</artifactId></dependency>
         <dependency><groupId>com.networknt</groupId><artifactId>http-string</artifactId></dependency>

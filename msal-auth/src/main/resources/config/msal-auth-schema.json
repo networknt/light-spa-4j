@@ -12,6 +12,27 @@
     "cookieSameSite"
   ],
   "properties": {
+        "browserAllowedOrigins": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Public HTTP browser Origins for proxy-safe recovery and read-only requests.",
+            "default": []
+        },
+        "websocketAllowedOrigins": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Trusted browser Origins. Empty disables cookie-authenticated WebSockets.",
+            "default": []
+        },
+        "csrfSigningKeyId": {
+            "type": "string",
+            "description": "Active CSRF signing key identifier, required when enabled."
+        },
+        "csrfSigningKeys": {
+            "type": "string",
+            "description": "Secret CSV key ring: id=unpadded-Base64URL-key, at least 32 random bytes per key. Required when enabled.",
+            "writeOnly": true
+        },
     "enabled": {
       "type": "boolean",
       "default": true
@@ -26,7 +47,7 @@
     },
     "logoutCsrfEnforced": {
       "type": "boolean",
-      "default": false
+      "default": true
     },
     "cookieDomain": {
       "type": "string",

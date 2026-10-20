@@ -1,6 +1,8 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.auth.csrf.Csrf;
+import com.networknt.auth.csrf.SessionCsrf;
 import com.networknt.config.JsonMapper;
 import com.networknt.config.schema.BooleanField;
 import com.networknt.config.schema.IntegerField;
@@ -9,6 +11,7 @@ import com.networknt.config.schema.ArrayField;
 import com.networknt.server.ModuleRegistry;
 
 import java.util.Map;
+import java.util.Set;
 import java.util.List;
 import java.util.Arrays;
 import java.net.URI;
@@ -24,6 +27,14 @@ public class MsalAuthConfig {
         }
     }
     private final Map<String, Object> mappedConfig;
+    @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
+            description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
+    private Set<String> websocketAllowedOrigins = Set.of();
+    public Set<String> getWebsocketAllowedOrigins() { return websocketAllowedOrigins; }
+    @ArrayField(configFieldName = "browserAllowedOrigins", externalizedKeyName = "browserAllowedOrigins", items = String.class,
+            description = "Public browser Origins trusted for HTTP recovery/read-only requests, including TLS-terminating proxies.")
+    private Set<String> browserAllowedOrigins = Set.of();
+    public Set<String> getBrowserAllowedOrigins() { return browserAllowedOrigins; }
 
     @BooleanField(configFieldName = "enabled", externalizedKeyName = "enabled",
             description = "Enables direct MSAL authentication.", defaultValue = "true")
@@ -47,6 +58,14 @@ public class MsalAuthConfig {
             description = "Nonempty list of client application UUIDs allowed to establish browser sessions.")
     private List<String> allowedClientIds = List.of();
     private MsalTokenPolicy tokenPolicy;
+    @StringField(configFieldName = "csrfSigningKeyId", externalizedKeyName = "csrfSigningKeyId",
+            description = "Active CSRF signing key identifier. Required when enabled.")
+    private String csrfSigningKeyId;
+    @StringField(configFieldName = "csrfSigningKeys", externalizedKeyName = "csrfSigningKeys",
+            description = "Secret key ring: comma-separated id=unpadded-Base64URL-key entries, minimum 32 bytes per key.")
+    private String csrfSigningKeys;
+    private SessionCsrf sessionCsrf;
+    SessionCsrf getSessionCsrf() { return sessionCsrf; }
     @StringField(configFieldName = "loginPath", externalizedKeyName = "loginPath",
             description = "Endpoint used to establish an MSAL-backed gateway session.", defaultValue = "/auth/ms/login")
     private String loginPath = "/auth/ms/login";
@@ -54,8 +73,8 @@ public class MsalAuthConfig {
             description = "Endpoint used to clear the MSAL-backed gateway session.", defaultValue = "/auth/ms/logout")
     private String logoutPath = "/auth/ms/logout";
     @BooleanField(configFieldName = "logoutCsrfEnforced", externalizedKeyName = "logoutCsrfEnforced",
-            description = "Enforces double-submit CSRF validation on logout.", defaultValue = "false")
-    private boolean logoutCsrfEnforced;
+            description = "Enforces session-bound CSRF validation on logout.", defaultValue = "true")
+    private boolean logoutCsrfEnforced = true;
     @StringField(configFieldName = "cookieDomain", externalizedKeyName = "cookieDomain",
             description = "Domain for session cookies.", defaultValue = "localhost")
     private String cookieDomain = "localhost";
@@ -105,8 +124,11 @@ public class MsalAuthConfig {
                 throw e;
             }
             state = new LoadState(config, loaded, null);
+            Map<String, Object> published = new java.util.HashMap<>(
+                    Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME));
+            published.put("csrfSigningKeys", "[redacted]");
             ModuleRegistry.registerModule(CONFIG_NAME, MsalAuthConfig.class.getName(),
-                    Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
+                    published, null);
             return loaded;
         }
     }
@@ -127,6 +149,10 @@ public class MsalAuthConfig {
         value = mappedConfig.get("cookieSameSite"); if (value != null) cookieSameSite = (String) value;
         // A disabled handler needs no trust policy, so its policy settings are not parsed either.
         if (!enabled) return;
+        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
+        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
+        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
+        browserAllowedOrigins = Set.copyOf(browserOrigins);
         tenantId = stringSetting("tenantId");
         issuer = stringSetting("issuer");
         audience = stringSetting("audience");
@@ -135,6 +161,9 @@ public class MsalAuthConfig {
         requiredScopes = stringListSetting("requiredScopes");
         allowedClientIds = stringListSetting("allowedClientIds");
         tokenPolicy = new MsalTokenPolicy(tenantId, issuer, audience, requiredScopes, allowedClientIds);
+        csrfSigningKeyId = stringSetting("csrfSigningKeyId");
+        csrfSigningKeys = stringSetting("csrfSigningKeys");
+        sessionCsrf = new SessionCsrf(csrfSigningKeyId, csrfSigningKeys);
     }
 
     static void validateJwksUri(String value) {
