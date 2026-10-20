@@ -1,5 +1,11 @@
+jwksUri: ${msal-auth.jwksUri:}
 # Direct MSAL BFF authentication without light-oauth token exchange.
 enabled: ${msal-auth.enabled:true}
+tenantId: ${msal-auth.tenantId:}
+issuer: ${msal-auth.issuer:}
+audience: ${msal-auth.audience:}
+requiredScopes: ${msal-auth.requiredScopes:}
+allowedClientIds: ${msal-auth.allowedClientIds:}
 loginPath: ${msal-auth.loginPath:/auth/ms/login}
 logoutPath: ${msal-auth.logoutPath:/auth/ms/logout}
 logoutCsrfEnforced: ${msal-auth.logoutCsrfEnforced:false}

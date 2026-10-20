@@ -1,7 +1,5 @@
 package com.networknt.auth;
 
-import com.networknt.security.JwtVerifier;
-import com.networknt.security.SecurityConfig;
 import io.undertow.Undertow;
 import io.undertow.server.HttpHandler;
 import io.undertow.util.Headers;
@@ -25,16 +23,17 @@ class MsalAuthHandlerTest {
 
     @BeforeAll
     static void start() {
-        SecurityConfig config = SecurityConfig.load("security-msal");
-        JwtVerifier verifier = new JwtVerifier(config) {
-            @Override
-            public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean isToken,
-                                       String pathPrefix, String requestPath, List<String> jwkServiceIds) {
+        MsalTokenVerifier verifier = jwt -> {
                 JwtClaims claims = new JwtClaims();
                 claims.setExpirationTimeMinutesInTheFuture(10);
                 claims.setSubject("test-user");
+                claims.setIssuer("https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0");
+                claims.setAudience("22222222-2222-2222-2222-222222222222");
+                claims.setClaim("tid", "11111111-1111-1111-1111-111111111111");
+                claims.setClaim("ver", "2.0");
+                claims.setClaim("azp", "33333333-3333-3333-3333-333333333333");
+                claims.setClaim("scp", "access_as_user");
                 return claims;
-            }
         };
         MsalAuthHandler.installVerifierForTest(verifier);
         HttpHandler terminal = exchange -> {
@@ -52,6 +51,7 @@ class MsalAuthHandlerTest {
     @AfterAll
     static void stop() {
         if (server != null) server.stop();
+        MsalAuthHandler.installVerifierForTest(null);
     }
 
     @Test
