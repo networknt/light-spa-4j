@@ -173,9 +173,14 @@ request receives the same non-forwarding 503; expired credentials are never forw
 Only an explicit terminal refresh-token result clears owned cookies and returns
 a sign-in-required 401. Supported light-oauth signals are a returned Status with HTTP status
 404 and code `ERR12029` (`REFRESH_TOKEN_NOT_FOUND`), and Rust light-oauth's exact
-plain-text `Refresh token not found` response (HTTP 400 at the provider). The OAuth
-helper discards non-JSON transport status and wraps this body as `ERR10052`; only
-that exact wrapped description is terminal, never `ERR10052` generally. Generic
+plain-text HTTP 400 responses: `Refresh token not found`, `Client ID mismatch`,
+`Provider ID mismatch`, and `Auth host mismatch`. The OAuth helper discards
+non-JSON transport status and wraps these bodies as `ERR10052`; only this finite
+allowlist of exact wrapped descriptions is terminal, never `ERR10052` generally.
+These strings are a legacy compatibility adapter, not a versioned upstream
+protocol. To remove this wording dependency, light-oauth must return structured
+Status JSON with `404 / ERR12029` for terminal refresh rejection. This Java PR
+already accepts that structured contract but does not change the Rust provider. Generic
 401s such as `ERR10053` from the OAuth client are **not** terminal: that client uses
 401 for network errors too. Unrecognized provider error shapes remain temporary
 rather than destroying a session.
@@ -216,6 +221,20 @@ Run backend validation with `mvn test` (or `mvn verify`). Handler and local TLS
 tests are component evidence, not deployed Portal/browser/proxy qualification.
 
 For logout with an unpublished JWT key ID, the gateway confirms that the key is
-absent from a successfully fetched and parsed JWKS before treating the session as
-unusable. Trusted-browser cleanup can then clear it. Failed or malformed JWKS
-lookups remain uncertain and return 503 with cookies preserved.
+absent from successfully fetched and parsed JWKS before treating the session as
+unusable. In multi-auth-server configurations, confirmation uses every configured
+key provider rather than the default server: this conservative superset includes
+all service/path-selected JWT authorities. A key found at any provider, or a
+failure at any provider, leaves this confirmation uncertain. This does not change
+the normal verifier's routing or authorize requests with an unverified token.
+Trusted-browser cleanup can clear only confirmed unusable sessions; uncertainty
+returns 503 with cookies preserved.
+
+Confirmation retains one process-local JWKS snapshot for five seconds, including
+partial/failed results, and serializes refresh of that snapshot. Configuration
+replacement invalidates it. The snapshot contains key IDs from provider responses,
+not a growing map of attacker-supplied IDs, so different missing IDs share the same
+confirmation fetches. The normal verifier's initial unknown-key lookup remains;
+this bounds the additional confirmation fetches to one per configured provider
+per cache window. A light-4j verifier change would be needed to share its original
+lookup outcome or bound its own repeated misses.

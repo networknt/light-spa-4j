@@ -88,6 +88,11 @@ public class StatelessAuthHandlerTest {
     private static final char[] STORE_PASSWORD = "password".toCharArray();
 
     private static volatile boolean jwksUnavailable;
+    private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
+
+    @org.junit.jupiter.api.BeforeEach
+    public void resetLogoutKeySnapshot() { LogoutBinding.clearKeySnapshot(); }
+
     private static volatile CountDownLatch slowRefreshEntered;
     private static volatile CountDownLatch slowRefreshRelease;
 
@@ -135,6 +140,7 @@ public class StatelessAuthHandlerTest {
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(Handlers.header(Handlers.path()
                                     .addPrefixPath("/oauth2/N2CMw0HGQXeLvC1wBfln2A/keys", (exchange) -> {
+                                        keyRequests.incrementAndGet();
                                         if (jwksUnavailable) {
                                             exchange.setStatusCode(503);
                                             exchange.getResponseSender().send("JWKS temporarily unavailable");
@@ -202,7 +208,12 @@ public class StatelessAuthHandlerTest {
             if (body.contains("rust-dead-refresh") || body.contains("plain-error-refresh")) {
                 exchange.setStatusCode(400);
                 exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "text/plain; charset=utf-8");
-                exchange.getResponseSender().send(body.contains("rust-dead-refresh") ? "Refresh token not found" : "Refresh service unavailable");
+                String message = "Refresh service unavailable";
+                if (body.contains("rust-dead-refresh")) {
+                    message = body.contains("client") ? "Client ID mismatch" : body.contains("provider") ? "Provider ID mismatch"
+                            : body.contains("host") ? "Auth host mismatch" : "Refresh token not found";
+                }
+                exchange.getResponseSender().send(message);
                 return;
             }
             if (body.contains("delayed-error-refresh")) {
@@ -678,11 +689,13 @@ public class StatelessAuthHandlerTest {
 
     @Test
     public void testRustDeadRefreshClearsCookies() throws Exception {
-        ClientResponse response = sendRequest(Methods.POST, "/api", "refreshToken=rust-dead-refresh; csrf=stale", null, "https://portal.test");
-        Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
-        Assertions.assertEquals("", issuedCookie(response, "refreshToken"));
-        Assertions.assertEquals("", issuedCookie(response, "accessToken"));
-        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+        for (String reason : new String[]{"missing", "client", "provider", "host"}) {
+            ClientResponse response = sendRequest(Methods.POST, "/api", "refreshToken=rust-dead-refresh-" + reason + "; csrf=stale", null, "https://portal.test");
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode(), reason);
+            Assertions.assertEquals("", issuedCookie(response, "refreshToken"));
+            Assertions.assertEquals("", issuedCookie(response, "accessToken"));
+            Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+        }
     }
 
     @Test
@@ -719,6 +732,30 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
+    public void testConfirmationSnapshotReusedAcrossDifferentMissingKeyIds() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        String first = retiredKeyJwt(csrf);
+        int before = keyRequests.get();
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/logout",
+                "accessToken=" + first + "; csrf=" + csrf, null, "https://portal.test").getResponseCode());
+        Assertions.assertEquals(2, keyRequests.get() - before, "initial verifier lookup plus one confirmation");
+        String[] parts = first.split("\\.");
+        String header = new String(java.util.Base64.getUrlDecoder().decode(parts[0]), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("retired-key", "different-missing-key");
+        String second = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(header.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                + "." + parts[1] + "." + parts[2];
+        before = keyRequests.get();
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/logout",
+                "accessToken=" + second + "; csrf=" + csrf, null, "https://portal.test").getResponseCode());
+        Assertions.assertEquals(1, keyRequests.get() - before, "only the dependency verifier lookup; no second confirmation");
+        Thread.sleep(5100); // A retired-key decision must not outlive the bounded snapshot.
+        before = keyRequests.get();
+        Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/logout",
+                "accessToken=" + second + "; csrf=" + csrf, null, "https://portal.test").getResponseCode());
+        Assertions.assertEquals(2, keyRequests.get() - before, "confirmation is fetched again after expiry");
+    }
+
+    @Test
     public void testUnavailableJwksPreservesLogoutCookies() throws Exception {
         String csrf = com.networknt.auth.csrf.Csrf.nonce();
         String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
@@ -727,7 +764,7 @@ public class StatelessAuthHandlerTest {
             ClientResponse response = sendRequest(Methods.POST, "/logout", cookies, null, "https://portal.test");
             Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
             Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
-        } finally { jwksUnavailable = false; }
+        } finally { jwksUnavailable = false; LogoutBinding.clearKeySnapshot(); }
     }
 
     @Test

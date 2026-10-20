@@ -10,9 +10,9 @@ client.tokenKeyUri: /oauth2/N2CMw0HGQXeLvC1wBfln2A/keys
 
 client.tokenKeyServiceIdAuthServers:
   MSAL_EXCHANGE:
-    server_url: https://login.microsoftonline.com
+    server_url: https://localhost:5882
     enableHttp2: true
-    uri: /common/discovery/keys
+    uri: /secondary/keys
   PORTAL:
     server_url: https://localhost:5882
     enableHttp2: true

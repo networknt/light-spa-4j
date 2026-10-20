@@ -13,11 +13,20 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public final class RefreshTokenSingleFlight {
+    // Compatibility contract for current Rust light-oauth's unstructured refresh errors.
+    // Keep this finite: ERR10052 also wraps transient failures. Prefer ERR12029 JSON.
+    private static final Set<String> LEGACY_TERMINAL_DESCRIPTIONS = Set.of(
+            new Status("ERR10052", "Refresh token not found").getDescription(),
+            new Status("ERR10052", "Client ID mismatch").getDescription(),
+            new Status("ERR10052", "Provider ID mismatch").getDescription(),
+            new Status("ERR10052", "Auth host mismatch").getDescription());
+
     private static final long REFRESH_WAIT_TIMEOUT_MILLIS = 5000L;
     private static final long REFRESH_COMPLETED_CACHE_MILLIS = 3000L;
     private static final int MAX_REFRESH_TRACKED_ENTRIES = 10000;
@@ -149,7 +158,7 @@ public final class RefreshTokenSingleFlight {
         public boolean isInvalidRefreshToken() {
             return error != null && ((error.getStatusCode() == 404 && "ERR12029".equals(error.getCode()))
                     || ("ERR10052".equals(error.getCode())
-                    && new Status("ERR10052", "Refresh token not found").getDescription().equals(error.getDescription())));
+                    && error.getDescription() != null && LEGACY_TERMINAL_DESCRIPTIONS.contains(error.getDescription())));
         }
     }
 

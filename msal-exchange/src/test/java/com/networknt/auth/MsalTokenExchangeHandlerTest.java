@@ -61,6 +61,13 @@ public class MsalTokenExchangeHandlerTest {
     final Http2Client client = Http2Client.getInstance();
 
     private static volatile boolean jwksUnavailable;
+    private static volatile boolean secondaryJwksUnavailable;
+    private static volatile boolean secondaryHasRetiredKey;
+    private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
+
+    @org.junit.jupiter.api.BeforeEach
+    public void resetLogoutKeySnapshot() { LogoutBinding.clearKeySnapshot(); }
+
     private static volatile CountDownLatch slowRefreshEntered;
     private static volatile CountDownLatch slowRefreshRelease;
 
@@ -89,7 +96,18 @@ public class MsalTokenExchangeHandlerTest {
                     .addHttpsListener(5882, "localhost", sslContext)
                     .setServerOption(UndertowOptions.ENABLE_HTTP2, true)
                     .setHandler(Handlers.header(Handlers.path()
+                                    .addPrefixPath("/secondary/keys", exchange -> {
+                                        if (secondaryJwksUnavailable) {
+                                            exchange.setStatusCode(503);
+                                            exchange.getResponseSender().send("Secondary JWKS unavailable");
+                                        } else {
+                                            exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
+                                            String keys = "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}";
+                                            exchange.getResponseSender().send(secondaryHasRetiredKey ? keys.replace("Tj_l_tIBTginOtQbL0Pv5w", "retired-key") : keys);
+                                        }
+                                    })
                                     .addPrefixPath("/oauth2/N2CMw0HGQXeLvC1wBfln2A/keys", (exchange) -> {
+                                        keyRequests.incrementAndGet();
                                         if (jwksUnavailable) {
                                             exchange.setStatusCode(503);
                                             exchange.getResponseSender().send("JWKS temporarily unavailable");
@@ -157,7 +175,12 @@ public class MsalTokenExchangeHandlerTest {
             if (body.contains("rust-dead-refresh") || body.contains("plain-error-refresh")) {
                 exchange.setStatusCode(400);
                 exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "text/plain; charset=utf-8");
-                exchange.getResponseSender().send(body.contains("rust-dead-refresh") ? "Refresh token not found" : "Refresh service unavailable");
+                String message = "Refresh service unavailable";
+                if (body.contains("rust-dead-refresh")) {
+                    message = body.contains("client") ? "Client ID mismatch" : body.contains("provider") ? "Provider ID mismatch"
+                            : body.contains("host") ? "Auth host mismatch" : "Refresh token not found";
+                }
+                exchange.getResponseSender().send(message);
                 return;
             }
             if (body.contains("delayed-error-refresh")) {
@@ -595,11 +618,13 @@ public class MsalTokenExchangeHandlerTest {
 
     @Test
     public void testRustDeadRefreshClearsCookies() throws Exception {
-        ClientResponse response = sendRequest(Methods.POST, "/api", "refreshToken=rust-dead-refresh; csrf=stale", null, "https://portal.test");
-        Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
-        Assertions.assertEquals("", issuedCookie(response, "refreshToken"));
-        Assertions.assertEquals("", issuedCookie(response, "accessToken"));
-        Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+        for (String reason : new String[]{"missing", "client", "provider", "host"}) {
+            ClientResponse response = sendRequest(Methods.POST, "/api", "refreshToken=rust-dead-refresh-" + reason + "; csrf=stale", null, "https://portal.test");
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode(), reason);
+            Assertions.assertEquals("", issuedCookie(response, "refreshToken"));
+            Assertions.assertEquals("", issuedCookie(response, "accessToken"));
+            Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+        }
     }
 
     @Test
@@ -636,6 +661,26 @@ public class MsalTokenExchangeHandlerTest {
     }
 
     @Test
+    public void testSecondaryProviderPreventsFalseRetiredKeyCleanup() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
+        try {
+            for (boolean unavailable : new boolean[]{false, true}) {
+                secondaryHasRetiredKey = true;
+                secondaryJwksUnavailable = unavailable;
+                LogoutBinding.clearKeySnapshot();
+                ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
+                Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode(), "provider unavailable=" + unavailable);
+                Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+            }
+        } finally {
+            secondaryHasRetiredKey = false;
+            secondaryJwksUnavailable = false;
+            LogoutBinding.clearKeySnapshot();
+        }
+    }
+
+    @Test
     public void testUnavailableJwksPreservesLogoutCookies() throws Exception {
         String csrf = com.networknt.auth.csrf.Csrf.nonce();
         String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
@@ -644,7 +689,7 @@ public class MsalTokenExchangeHandlerTest {
             ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
             Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
             Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
-        } finally { jwksUnavailable = false; }
+        } finally { jwksUnavailable = false; LogoutBinding.clearKeySnapshot(); }
     }
 
     @Test
