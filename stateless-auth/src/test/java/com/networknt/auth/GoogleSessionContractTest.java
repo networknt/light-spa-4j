@@ -33,6 +33,7 @@ class GoogleSessionContractTest {
     private SSLSocketFactory previousHttpsFactory;
     private String oldRedirect, oldDeny;
     private boolean invalidToken;
+    private boolean reloadDuringLink;
     private final AtomicReference<Map<String, String>> form = new AtomicReference<>();
     private final AtomicReference<Map<String, Object>> identity = new AtomicReference<>();
     @BeforeEach void start() throws Exception {
@@ -57,7 +58,17 @@ class GoogleSessionContractTest {
         }, (data, bootstrap) -> {
             identity.set(data);
             return Success.of(JsonMapper.toJson(Map.of("userId", USER, "email", "stored@example.org", "userType", "C")));
-        });
+        }) {
+            @Override protected String currentUser(HttpServerExchange exchange, StatelessAuthConfig snapshot) throws Exception {
+                assertSame(auth, snapshot);
+                if (!reloadDuringLink) return super.currentUser(exchange, snapshot);
+                Map<String, Object> captured = Config.getInstance().getJsonMapConfig("statelessAuth");
+                try {
+                    Config.getInstance().putInConfigCache("statelessAuth", Map.of("enabled", true));
+                    return super.currentUser(exchange, snapshot);
+                } finally { Config.getInstance().putInConfigCache("statelessAuth", captured); }
+            }
+        };
         gateway = Undertow.builder().addHttpListener(0, "127.0.0.1").setHandler(handler).build(); gateway.start();
         base = "http://127.0.0.1:" + ((InetSocketAddress) gateway.getListenerInfo().get(0).getAddress()).getPort();
     }
@@ -124,7 +135,12 @@ class GoogleSessionContractTest {
         assertTrue(reply.headers().allValues("set-cookie").stream().anyMatch(cookie -> cookie.startsWith("accessToken=")));
         assertEquals("https://portal.example/#/dashboard?state=a%26b", JsonMapper.string2Map(reply.body()).get("redirectUri"));
     }
-    @Test void linksWithVerifiedUidWithoutMintingSession() throws Exception {
+    @Test void linkUsesCapturedPolicyWhenConfigurationReloadsMidRequest() throws Exception {
+        reloadDuringLink = true;
+        assertLinksWithVerifiedUidWithoutMintingSession();
+    }
+    @Test void linksWithVerifiedUidWithoutMintingSession() throws Exception { assertLinksWithVerifiedUidWithoutMintingSession(); }
+    private void assertLinksWithVerifiedUidWithoutMintingSession() throws Exception {
         String session = "accessToken=" + token(false, false, "fixture-csrf");
         var challenge = request("/google/link?challenge=1", "{}", session); assertEquals(200, challenge.statusCode());
         var data = JsonMapper.string2Map(challenge.body());

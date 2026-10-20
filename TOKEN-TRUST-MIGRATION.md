@@ -8,7 +8,10 @@ by this Java PR.
 
 ## Signing boundaries
 
-Each enabled policy owns an RS256 verifier, HTTPS JWKS source and key cache.
+Each enabled policy owns its application validator. Identical administrator-selected
+JWKS URLs and CA settings share one source/cache within a configuration snapshot;
+ID and API claim policies remain independent. Different endpoints, CA settings or
+configuration snapshots never share signing state.
 Authentication never reads light-4j JwtVerifier's static certificates, audience
 maps or JWT/JWK caches, and never chooses a key server through client.yml routing.
 The configured endpoint is the sole authority for that policy. Token jku/x5u
@@ -23,10 +26,24 @@ no trust policies. Trust maps can be supplied as native YAML objects or JSON
 object strings through the production placeholders. Scope/client lists accept
 native arrays, JSON-array strings or CSV strings.
 
-HTTPS uses JVM trust anchors and normal hostname verification. For a private CA,
-configure the JVM trust store, for example `-Djavax.net.ssl.trustStore=/path/to/ca.jks`
-and its password through your normal secret/runtime configuration. The former
-OAuth-client TLS switches do not disable validation for this independent source.
+HTTPS uses JVM default trust anchors and normal hostname verification. For a
+private-CA OAuth endpoint, add public PEM CA certificate paths to that policy:
+
+```yaml
+statelessAuth.tokenTrust:
+  jwksUri: https://oauth.internal.example/keys
+  issuer: urn:com:networknt:oauth2:v1
+  audience: urn:com.networknt
+  additionalCaFiles: [/etc/gateway/certs/portal-ca.pem]
+```
+
+additionalCaFiles extends default roots for that endpoint only. Microsoft's public
+roots and the JVM's global SSL settings remain intact. Files may contain PEM
+certificate chains and must be readable by the gateway. Do not replace the whole
+JVM trust store with a private-only store: that would remove public roots used by
+Microsoft and other HTTPS clients. client.yml's private truststore is not inherited;
+configure the CA on internalTokenTrust/tokenTrust explicitly. The former OAuth-client
+TLS switches do not disable certificate or hostname verification here.
 
 ## Stateless authorization-code and social-login sessions
 
@@ -71,7 +88,7 @@ msal-exchange.apiTokenTrust:
   jwksUri: https://login.microsoftonline.com/YOUR-TENANT-UUID/discovery/v2.0/keys
   tenantId: YOUR-TENANT-UUID
   issuer: https://login.microsoftonline.com/YOUR-TENANT-UUID/v2.0
-  audience: api://YOUR-GATEWAY-API
+  audience: YOUR-GATEWAY-API-CLIENT-UUID
   requiredScopes: [gateway.read]
   allowedClientIds: [YOUR-SPA-CLIENT-UUID]
   clockSkewSeconds: 0
@@ -89,8 +106,12 @@ matches gateway-generated login state. The SPA retains its MSAL login/nonce flow
 
 The API policy requires a user subject, all configured delegated scp scopes, an
 allowed azp (v2) or appid (v1), and no `idtyp: app`. Use the API's actual audience,
-not Microsoft Graph's audience. light-oauth mode needs only the internal and ID
-policies; azure-msal mode requires all three. Existing cookie/header placement
+not Microsoft Graph's audience. Entra **v2 access tokens use the API application
+(client) UUID** in aud. An api:// application-ID URI may be an audience for v1
+access tokens; configure the matching v1 issuer in that case. v2 API policies reject
+non-UUID audiences at load time. light-oauth mode requires only internal and ID
+policies; azure-msal mode requires all three. An explicitly provided API policy is
+validated eagerly even in light-oauth mode; there is no request-time policy parsing. Existing cookie/header placement
 and opaque CSRF handling are unchanged.
 
 ## Expiry, responses and key rotation
@@ -103,22 +124,45 @@ exchange, refresh and recovery must pass the internal policy and contain the
 requested CSRF claim before any session cookie is set. A rejected issuance response
 cannot become a success response or execute the original API request.
 
-Invalid signature/policy/lifetime returns an authentication 401. Transport or
-malformed-JWKS uncertainty returns 503 and preserves cookies. Logout uses the
+Invalid signature/policy/lifetime returns an authentication 401. Duplicate eligible
+signing keys under one kid are definitive invalid-key errors, not an outage cooldown.
+Transport or malformed-JWKS uncertainty returns 503. Existing access/CSRF cookies
+are preserved. If OAuth has already issued/rotated a refresh credential but the
+returned JWT's key verification is unavailable or pending publication, retain
+**only the opaque HttpOnly refresh credential** and return 503
+SESSION_VERIFICATION_PENDING. Do not install the unverified JWT or a new CSRF value,
+and do not execute the original request. Retrying uses the retained credential,
+including after the provider's old-token grace expires. A confirmed signature,
+issuer, audience or other application-policy failure never installs new credentials. Logout uses the
 same internal authority and policy. An independently invalid or confirmed
 unresolvable session can be cleared with trusted browser provenance; a valid
 session still needs its request-bound CSRF, and lookup uncertainty cannot clear it.
 The CSRF migration's recovery, 409 explicit retry, renewal fallback, and logout
 counters remain in effect.
 
-Key lookups share a per-policy single-flight future with a five-second waiter
-deadline. Waiter timeouts do not cancel the owner. The owner uses five-second
-connect/read timeouts and no HTTP retries. Failed lookups have a five-second
-cooldown. jose4j owns the successful JWKS cache (300-second fallback, respecting
-provider HTTP cache headers) and a 30-second refresh reprieve for unknown key IDs.
-Publish new keys before issuing tokens with them, retain old keys for the token
-lifetime and cache overlap, and allow the refresh reprieve during rotation.
-A configuration replacement installs a fresh source/cache immediately.
+Key lookups share a per-endpoint, per-configuration single-flight future with a
+five-second waiter deadline. Known cached keys bypass other kids' in-flight work
+and failure cooldowns. Cached keys remain usable during outages for **one hour
+past their freshness deadline**, with JWT lifetime/application checks still enforced.
+This is an explicit availability/revocation tradeoff: retained keys are discarded
+as soon as a successful refresh replaces the set, and retention never extends with
+repeated errors. A configuration replacement clears retained state immediately;
+reload with a fresh source to fail closed during emergency key revocation.
+
+Freshness uses the smaller of HTTP max-age and 300 seconds (300-second fallback).
+Unknown-kid refreshes on a fresh set have a 30-second reprieve; absence during that
+reprieve is **uncertain (503)**, not an invalid-token decision. Only a newer successful
+HTTP response can establish missing-key evidence. A single bounded, five-second
+negative entry records the specifically confirmed missing kid; different random
+kids cannot create an unbounded negative cache. Expired key sets can be refreshed
+without the fresh-set reprieve. Failed fetches have a five-second cooldown, without
+blocking cached known keys. Owner HTTP connect/read timeouts are five seconds,
+with no retries; a timed-out waiter never cancels it.
+
+Publish new keys before issuing their tokens, retain old keys for token/cache overlap,
+and allow the fresh-set reprieve during rotation. Pending refresh verification retains
+the rotated opaque credential so this delay cannot strand the browser on an obsolete
+refresh token. New configuration snapshots install fresh source/cache state.
 
 ## Validation boundary
 

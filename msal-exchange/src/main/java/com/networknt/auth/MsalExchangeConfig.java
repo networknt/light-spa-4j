@@ -64,13 +64,7 @@ public class MsalExchangeConfig {
             description = "Isolated MICROSOFT_ACCESS signing endpoint and exact issuer/audience policy. Required when enabled and used.")
     private Map<String, Object> apiTokenTrust;
     private JwtTrust apiTokenTrustVerifier;
-    synchronized JwtTrust getApiTokenTrust() {
-        if (apiTokenTrustVerifier == null) {
-            apiTokenTrust = JwtTrust.configuration(mappedConfig.get("apiTokenTrust"));
-            apiTokenTrustVerifier = JwtTrust.load(apiTokenTrust, JwtTrust.Kind.MICROSOFT_ACCESS);
-        }
-        return apiTokenTrustVerifier;
-    }
+    JwtTrust getApiTokenTrust() { return apiTokenTrustVerifier; }
     private final Map<String, Object> mappedConfig;
     @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
             description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
@@ -291,13 +285,15 @@ public class MsalExchangeConfig {
         Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
         browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
         browserAllowedOrigins = Set.copyOf(browserOrigins);
+        JwtTrust.Factory signing = new JwtTrust.Factory();
         internalTokenTrust = JwtTrust.configuration(mappedConfig.get("internalTokenTrust"));
-        internalTokenTrustVerifier = JwtTrust.load(internalTokenTrust, JwtTrust.Kind.INTERNAL_ACCESS);
+        internalTokenTrustVerifier = signing.load(internalTokenTrust, JwtTrust.Kind.INTERNAL_ACCESS);
         subjectTokenTrust = JwtTrust.configuration(mappedConfig.get("subjectTokenTrust"));
-        subjectTokenTrustVerifier = JwtTrust.load(subjectTokenTrust, JwtTrust.Kind.MICROSOFT_ID);
-        if (isAzureMsalAuthorization()) {
+        subjectTokenTrustVerifier = signing.load(subjectTokenTrust, JwtTrust.Kind.MICROSOFT_ID);
+        if (isAzureMsalAuthorization() || (mappedConfig.get("apiTokenTrust") instanceof Map<?, ?>)
+                || (mappedConfig.get("apiTokenTrust") instanceof String text && !text.isBlank())) {
         apiTokenTrust = JwtTrust.configuration(mappedConfig.get("apiTokenTrust"));
-        apiTokenTrustVerifier = JwtTrust.load(apiTokenTrust, JwtTrust.Kind.MICROSOFT_ACCESS);
+        apiTokenTrustVerifier = signing.load(apiTokenTrust, JwtTrust.Kind.MICROSOFT_ACCESS);
         }
     }
 
@@ -489,6 +485,8 @@ public class MsalExchangeConfig {
      * @param authorizationToken light-oauth or azure-msal
      */
     public void setAuthorizationToken(String authorizationToken) {
+        if (enabled && AUTHORIZATION_TOKEN_AZURE_MSAL.equals(authorizationToken) && apiTokenTrustVerifier == null)
+            throw new IllegalArgumentException("Configure apiTokenTrust and reload before enabling azure-msal authorization");
         this.authorizationToken = authorizationToken;
     }
 

@@ -3,9 +3,6 @@ package com.networknt.auth.trust;
 import com.networknt.config.JsonMapper;
 import org.jose4j.http.Get;
 import org.jose4j.jwa.AlgorithmConstraints;
-import org.jose4j.jwk.HttpsJwks;
-import org.jose4j.jwk.JsonWebKey;
-import org.jose4j.jwk.RsaJsonWebKey;
 import org.jose4j.jws.AlgorithmIdentifiers;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.MalformedClaimException;
@@ -16,18 +13,13 @@ import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.jose4j.jwt.consumer.JwtConsumer;
 import org.jose4j.jwt.consumer.JwtConsumerBuilder;
 import org.jose4j.keys.resolvers.VerificationKeyResolver;
-import org.jose4j.lang.UnresolvableKeyException;
 
 import java.net.URI;
-import java.security.Key;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 /** An immutable application policy with its own signing authority and JWKS cache.
  * Never reads light-4j's global verifier, client routing, certificate or JWT caches. */
@@ -42,29 +34,57 @@ public final class JwtTrust {
     private final Set<String> scopes;
     private final int skew;
     private final JwtConsumer consumer;
+    private final VerificationKeyResolver signingSource;
+    VerificationKeyResolver signingSource() { return signingSource; }
 
-    public static JwtTrust load(Object source, Kind kind) {
-        Map<String, Object> settings = configuration(source);
-        String uri = text(settings, "jwksUri");
-        https(uri);
-        HttpsJwks keys = new HttpsJwks(uri);
+    /** A configuration snapshot owns its pool. Only identical administrator-selected endpoints/TLS roots share keys. */
+    public static final class Factory {
+        private final java.util.concurrent.ConcurrentHashMap<SourceKey, VerificationKeyResolver> sources = new java.util.concurrent.ConcurrentHashMap<>();
+        public JwtTrust load(Object source, Kind kind) {
+            Map<String, Object> settings = configuration(source);
+            String uri = text(settings, "jwksUri");
+            https(uri);
+            List<String> caFiles = caFiles(settings.get("additionalCaFiles"));
+            SourceKey key = new SourceKey(uri, caFiles);
+            return new JwtTrust(settings, kind, sources.computeIfAbsent(key, ignored -> source(uri, caFiles)));
+        }
+    }
+    private record SourceKey(String uri, List<String> caFiles) { }
+    public static JwtTrust load(Object source, Kind kind) { return new Factory().load(source, kind); }
+
+    private static VerificationKeyResolver source(String uri, List<String> caFiles) {
         Get transport = new Get();
         transport.setConnectTimeout(5000);
         transport.setReadTimeout(5000);
         transport.setRetries(0);
         transport.setResponseBodySizeLimit(1024 * 1024);
-        keys.setSimpleHttpGet(transport);
-        keys.setDefaultCacheDuration(300);
-        keys.setRefreshReprieveThreshold(30000);
-        return new JwtTrust(settings, kind, resolver(keys));
+        if (!caFiles.isEmpty()) {
+            try {
+                javax.net.ssl.TrustManagerFactory trust = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm());
+                trust.init((java.security.KeyStore) null);
+                java.util.Collection<java.security.cert.X509Certificate> roots = new java.util.ArrayList<>();
+                for (var manager : trust.getTrustManagers()) if (manager instanceof javax.net.ssl.X509TrustManager x509)
+                    roots.addAll(Arrays.asList(x509.getAcceptedIssuers()));
+                var certificates = java.security.cert.CertificateFactory.getInstance("X.509");
+                for (String file : caFiles) try (var input = java.nio.file.Files.newInputStream(java.nio.file.Path.of(file))) {
+                    for (var certificate : certificates.generateCertificates(input)) roots.add((java.security.cert.X509Certificate) certificate);
+                }
+                transport.setTrustedCertificates(roots); // Add endpoint-specific roots without replacing JVM/public trust.
+            } catch (Exception e) { throw new IllegalArgumentException("Cannot load endpoint-specific additional CA certificates", e); }
+        }
+        return new JwksSource(uri, transport);
     }
-
-    JwtTrust(Map<String, Object> settings, Kind kind, HttpsJwks source) {
-        this(settings, kind, resolver(source));
+    private static List<String> caFiles(Object value) {
+        if (value == null) return List.of();
+        if (value instanceof String s) value = s.isBlank() ? List.of() : JsonMapper.fromJson(s, List.class);
+        if (!(value instanceof List<?> values) || values.stream().anyMatch(v -> !(v instanceof String s) || s.isBlank()))
+            throw new IllegalArgumentException("additionalCaFiles must be an array of PEM certificate paths");
+        return values.stream().map(String.class::cast).map(p -> java.nio.file.Path.of(p).toAbsolutePath().normalize().toString()).sorted().distinct().toList();
     }
 
     JwtTrust(Map<String, Object> settings, Kind kind, VerificationKeyResolver resolver) {
         this.kind = kind;
+        this.signingSource = resolver;
         issuer = text(settings, "issuer");
         audience = text(settings, "audience");
         Object clock = settings.getOrDefault("clockSkewSeconds", 0);
@@ -85,6 +105,7 @@ public final class JwtTrust {
         if (kind == Kind.MICROSOFT_ACCESS) {
             if (scopes.isEmpty() || clients.isEmpty()) throw new IllegalArgumentException("Microsoft API trust requires delegated scopes and allowed clients");
             clients.forEach(JwtTrust::uuid);
+            if ("2.0".equals(version)) uuid(audience);
         }
         if (kind == Kind.MICROSOFT_ID) uuid(audience);
         // Lifetime and application claims are checked below on EVERY verification, including cleanup.
@@ -123,75 +144,18 @@ public final class JwtTrust {
     /** Only transport/parse uncertainty is retryable. Confirmed missing keys are invalid. */
     public static boolean unavailable(Throwable failure) {
         for (Throwable cause = failure; cause != null; cause = cause.getCause())
-            if (cause instanceof KeyUnavailable) return true;
+            if (cause instanceof JwksSource.UnavailableKey) return true;
         return false;
     }
 
-    private static VerificationKeyResolver resolver(HttpsJwks source) {
-        AtomicReference<CompletableFuture<List<JsonWebKey>>> flight = new AtomicReference<>();
-        return new VerificationKeyResolver() {
-            private volatile LookupFailure lastFailure;
-
-            @Override
-            public Key resolveKey(org.jose4j.jws.JsonWebSignature jws, List<org.jose4j.jwx.JsonWebStructure> nesting)
-                    throws UnresolvableKeyException {
-                String kid = jws.getKeyIdHeaderValue();
-                if (kid == null || kid.isBlank() || kid.length() > 256) throw new MissingKey();
-                LookupFailure failed = lastFailure;
-                if (failed != null && System.nanoTime() - failed.expiresAt < 0) throw failed.error;
-                CompletableFuture<List<JsonWebKey>> owner = new CompletableFuture<>();
-                CompletableFuture<List<JsonWebKey>> current = flight.compareAndExchange(null, owner);
-                if (current == null) {
-                    current = owner;
-                    try {
-                        List<JsonWebKey> keys = source.getJsonWebKeys();
-                        if (select(keys, kid) == null) {
-                            source.refresh(); // Endpoint-owned cache and 30s unknown-kid refresh reprieve.
-                            keys = source.getJsonWebKeys();
-                        }
-                        owner.complete(keys);
-                    } catch (Exception e) {
-                        KeyUnavailable unavailable = new KeyUnavailable(e);
-                        lastFailure = new LookupFailure(unavailable, System.nanoTime() + TimeUnit.SECONDS.toNanos(5));
-                        owner.completeExceptionally(unavailable);
-                    } finally {
-                        flight.compareAndSet(owner, null);
-                        if (!owner.isDone()) owner.completeExceptionally(new IllegalStateException("Key lookup aborted"));
-                    }
-                }
-                try {
-                    Key key = select(current.get(5, TimeUnit.SECONDS), kid);
-                    if (key == null) throw new MissingKey();
-                    return key;
-                } catch (MissingKey e) { throw e; }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new KeyUnavailable(e); }
-                catch (Exception e) { throw new KeyUnavailable(e); }
-            }
-        };
+    /** An OAuth refresh may already be rotated even when publication of its new signing key lags. */
+    public static boolean verificationPending(Throwable failure) {
+        if (unavailable(failure)) return true;
+        for (Throwable cause = failure; cause != null; cause = cause.getCause())
+            if (cause instanceof JwksSource.MissingKey) return true;
+        return false;
     }
 
-    private static Key select(List<JsonWebKey> keys, String kid) throws UnresolvableKeyException {
-        Key selected = null;
-        for (JsonWebKey key : keys) {
-            if (key instanceof RsaJsonWebKey && kid.equals(key.getKeyId())
-                    && (key.getUse() == null || "sig".equals(key.getUse()))
-                    && (key.getKeyOps() == null || key.getKeyOps().contains("verify"))
-                    && (key.getAlgorithm() == null || AlgorithmIdentifiers.RSA_USING_SHA256.equals(key.getAlgorithm()))) {
-                if (selected != null) throw new UnresolvableKeyException("Ambiguous signing key");
-                selected = key.getKey();
-            }
-        }
-        return selected;
-    }
-
-    private record LookupFailure(KeyUnavailable error, long expiresAt) { }
-
-    private static final class KeyUnavailable extends UnresolvableKeyException {
-        KeyUnavailable(Throwable cause) { super("Signing keys temporarily unavailable", cause); }
-    }
-    private static final class MissingKey extends UnresolvableKeyException {
-        MissingKey() { super("No matching signing key in trusted JWKS"); }
-    }
     private static InvalidJwtException rejected(String category) {
         return new InvalidJwtException("Token rejected", List.of(new ErrorCodeValidator.Error(0, category)), null);
     }

@@ -210,6 +210,14 @@
           "minimum": 0,
           "maximum": 300,
           "default": 0
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
         }
       }
     }

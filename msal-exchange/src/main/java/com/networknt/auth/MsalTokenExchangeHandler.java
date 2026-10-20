@@ -499,6 +499,16 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
      * @return a list of scopes from the access token
      * @throws Exception if cookie setting fails
      */
+    private void setRefreshCookie(HttpServerExchange exchange, String refreshToken, String remember, MsalExchangeConfig config) {
+        exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
+                .setDomain(config.cookieDomain)
+                .setPath(config.getCookiePath())
+                .setMaxAge((remember == null || remember.equals("N")) ? config.getSessionTimeout() : config.getRememberMeTimeout())
+                .setHttpOnly(true)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                .setSecure(config.cookieSecure));
+    }
+
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, MsalExchangeConfig config) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
@@ -527,7 +537,13 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
         } catch (InvalidJwtException e) {
-            rejectToken(exchange, e);
+            if (JwtTrust.verificationPending(e) && refreshToken != null && !refreshToken.isBlank()) {
+                setRefreshCookie(exchange, refreshToken, remember, config);
+                exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+                exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "1");
+                setExchangeStatus(exchange, new Status(StatusCodes.SERVICE_UNAVAILABLE, "SPA_SESSION_TEMPORARY_FAILURE",
+                        "SESSION_VERIFICATION_PENDING", "Rotated refresh credential retained. Access token not accepted; retry later."));
+            } else rejectToken(exchange, e);
             return null;
         }
         if (!Csrf.equal(csrf, claims.getStringClaimValue(Constants.CSRF))) {
@@ -543,13 +559,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 .setHttpOnly(true)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
-        exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
-                .setDomain(config.cookieDomain)
-                .setPath(config.getCookiePath())
-                .setMaxAge((remember == null || remember.equals("N")) ? config.getSessionTimeout() : config.getRememberMeTimeout())
-                .setHttpOnly(true)
-                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
-                .setSecure(config.cookieSecure));
+        setRefreshCookie(exchange, refreshToken, remember, config);
         // this is user info in cookie, and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(USER_ID, userId)
                 .setDomain(config.cookieDomain)

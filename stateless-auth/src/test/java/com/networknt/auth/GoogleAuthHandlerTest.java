@@ -31,7 +31,7 @@ class GoogleAuthHandlerTest {
             JwtClaims claims = new JwtClaims(); claims.setSubject("123456789");
             claims.setClaim("email", "user@gmail.com"); return claims;
         }, (identity, token) -> Success.of(invalidAccount ? "{}" : JsonMapper.toJson(Map.of("userId", USER, "email", "stored@example.com", "userType", "E")))) {
-            @Override protected String currentUser(HttpServerExchange exchange) {
+            @Override protected String currentUser(HttpServerExchange exchange, StatelessAuthConfig config) {
                 if (session == null) throw new IllegalArgumentException(); return session;
             }
             @Override protected void issueSession(HttpServerExchange exchange, Map<String, Object> account,

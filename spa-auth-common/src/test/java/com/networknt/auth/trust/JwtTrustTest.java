@@ -1,6 +1,5 @@
 package com.networknt.auth.trust;
 
-import org.jose4j.jwk.HttpsJwks;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.RsaJsonWebKey;
 import org.jose4j.jwk.RsaJwkGenerator;
@@ -33,7 +32,7 @@ class JwtTrustTest {
     private static Map<String, Object> settings(JwtTrust.Kind kind) {
         Map<String, Object> map = new HashMap<>();
         map.put("issuer", kind == JwtTrust.Kind.INTERNAL_ACCESS ? "urn:light-oauth" : ISSUER);
-        map.put("audience", kind == JwtTrust.Kind.MICROSOFT_ID ? CLIENT : "api://gateway");
+        map.put("audience", kind == JwtTrust.Kind.MICROSOFT_ID ? CLIENT : "33333333-3333-3333-3333-333333333333");
         map.put("tenantId", TENANT);
         map.put("requiredScopes", List.of("gateway.read")); map.put("allowedClientIds", List.of(CLIENT));
         return map;
@@ -41,7 +40,7 @@ class JwtTrustTest {
     private static JwtClaims claims(JwtTrust.Kind kind) {
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(kind == JwtTrust.Kind.INTERNAL_ACCESS ? "urn:light-oauth" : ISSUER);
-        claims.setAudience(kind == JwtTrust.Kind.MICROSOFT_ID ? CLIENT : "api://gateway");
+        claims.setAudience(kind == JwtTrust.Kind.MICROSOFT_ID ? CLIENT : "33333333-3333-3333-3333-333333333333");
         claims.setSubject("user"); claims.setExpirationTimeMinutesInTheFuture(10);
         claims.setClaim("tid", TENANT); claims.setClaim("ver", "2.0");
         if (kind == JwtTrust.Kind.MICROSOFT_ACCESS) {
@@ -107,21 +106,20 @@ class JwtTrustTest {
     }
     @Test void unknownKidUsesOnlyItsConfiguredSourceAndBoundedRefreshCache() throws Exception {
         AtomicInteger requests = new AtomicInteger();
-        HttpsJwks keys = source(requests, microsoftKey);
+        JwksSource keys = source(requests, microsoftKey);
         JwtTrust internal = new JwtTrust(settings(JwtTrust.Kind.INTERNAL_ACCESS), JwtTrust.Kind.INTERNAL_ACCESS, keys);
         for (int i = 0; i < 5; i++) {
             RsaJsonWebKey key = internalKey; String original = key.getKeyId();
             try {
                 key.setKeyId("random-" + i);
                 InvalidJwtException rejected = assertThrows(InvalidJwtException.class, () -> internal.verify(sign(claims(JwtTrust.Kind.INTERNAL_ACCESS), key), false));
-                assertFalse(JwtTrust.unavailable(rejected));
+                assertEquals(i != 0, JwtTrust.unavailable(rejected), "only the initiating fresh fetch can confirm a missing ID");
             } finally { key.setKeyId(original); }
         }
         assertEquals(1, requests.get(), "different unknown IDs share endpoint-owned JWKS cache and refresh reprieve");
     }
     @Test void unavailableProviderIsUncertainButConfirmedAbsenceIsNot() throws Exception {
-        HttpsJwks keys = new HttpsJwks("https://owned.example/keys");
-        keys.setSimpleHttpGet(uri -> { throw new IOException("test outage"); });
+        JwksSource keys = new JwksSource("https://owned.example/keys", uri -> { throw new IOException("test outage"); });
         JwtTrust trust = new JwtTrust(settings(JwtTrust.Kind.INTERNAL_ACCESS), JwtTrust.Kind.INTERNAL_ACCESS, keys);
         InvalidJwtException failure = assertThrows(InvalidJwtException.class, () -> trust.verify(sign(claims(JwtTrust.Kind.INTERNAL_ACCESS), internalKey), true));
         assertTrue(JwtTrust.unavailable(failure));
@@ -139,8 +137,7 @@ class JwtTrustTest {
         var entered = new java.util.concurrent.CountDownLatch(1);
         var release = new java.util.concurrent.CountDownLatch(1);
         AtomicInteger requests = new AtomicInteger();
-        HttpsJwks keys = new HttpsJwks("https://owned.example/keys");
-        keys.setSimpleHttpGet(uri -> {
+        JwksSource keys = new JwksSource("https://owned.example/keys", uri -> {
             requests.incrementAndGet(); entered.countDown();
             try { if (!release.await(8, java.util.concurrent.TimeUnit.SECONDS)) throw new IOException("test release timeout"); }
             catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException(e); }
@@ -162,8 +159,7 @@ class JwtTrustTest {
     }
     @Test void failedSourceHasBoundedRetryRateAcrossRandomKids() throws Exception {
         AtomicInteger requests = new AtomicInteger();
-        HttpsJwks keys = new HttpsJwks("https://owned.example/keys");
-        keys.setSimpleHttpGet(uri -> { requests.incrementAndGet(); throw new IOException("test outage"); });
+        JwksSource keys = new JwksSource("https://owned.example/keys", uri -> { requests.incrementAndGet(); throw new IOException("test outage"); });
         JwtTrust trust = new JwtTrust(settings(JwtTrust.Kind.INTERNAL_ACCESS), JwtTrust.Kind.INTERNAL_ACCESS, keys);
         String token = sign(claims(JwtTrust.Kind.INTERNAL_ACCESS), internalKey);
         for (int i = 0; i < 5; i++) assertTrue(JwtTrust.unavailable(assertThrows(InvalidJwtException.class, () -> trust.verify(token, false))));
@@ -182,6 +178,10 @@ class JwtTrustTest {
         assertNotNull(trust.verify(sign(claims, internalKey), false));
         claims.setClaim("ver", "2.0");
         assertThrows(InvalidJwtException.class, () -> trust.verify(sign(claims, internalKey), false));
+        policy.put("audience", "api://v1-gateway");
+        JwtTrust v1Uri = new JwtTrust(policy, JwtTrust.Kind.MICROSOFT_ACCESS, (jws,nesting) -> internalKey.getPublicKey());
+        claims.setClaim("ver", "1.0"); claims.setAudience("api://v1-gateway");
+        assertNotNull(v1Uri.verify(sign(claims, internalKey), false));
     }
     @Test void encryptionOnlyKeysCannotAuthenticateEvenWithMatchingKid() throws Exception {
         RsaJsonWebKey key = RsaJwkGenerator.generateJwk(2048); key.setKeyId("encryption-key");
@@ -199,10 +199,8 @@ class JwtTrustTest {
         Map<String, Object> tenant = settings(JwtTrust.Kind.MICROSOFT_ACCESS); tenant.put("issuer", "https://login.microsoftonline.com/common/v2.0");
         assertThrows(IllegalArgumentException.class, () -> new JwtTrust(tenant, JwtTrust.Kind.MICROSOFT_ACCESS, (jws,nesting) -> internalKey.getPublicKey()));
     }
-    private static HttpsJwks source(AtomicInteger requests, RsaJsonWebKey key) {
-        HttpsJwks source = new HttpsJwks("https://owned.example/keys");
-        source.setRefreshReprieveThreshold(30000);
-        source.setSimpleHttpGet(uri -> {
+    private static JwksSource source(AtomicInteger requests, RsaJsonWebKey key) {
+        JwksSource source = new JwksSource("https://owned.example/keys", uri -> {
             assertEquals("https://owned.example/keys", uri);
             requests.incrementAndGet();
             String body = "{\"keys\":[" + key.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}";

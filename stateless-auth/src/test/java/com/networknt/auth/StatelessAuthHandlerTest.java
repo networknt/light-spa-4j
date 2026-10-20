@@ -92,6 +92,9 @@ public class StatelessAuthHandlerTest {
     static void restoreHttpsTrust() { javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(PREVIOUS_HTTPS_FACTORY); }
 
     private static volatile boolean jwksUnavailable;
+    private static volatile boolean publishRotatedKey;
+    private static volatile boolean uncachedKeys;
+    private static volatile String rotatingRefresh;
     private static volatile boolean invalidIssuedPolicy;
     private static final java.util.concurrent.atomic.AtomicInteger tokenRequests = new java.util.concurrent.atomic.AtomicInteger();
     private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
@@ -153,7 +156,15 @@ public class StatelessAuthHandlerTest {
                                             return;
                                         }
                                         exchange.getResponseHeaders().add(new HttpString("Content-Type"), "application/json");
-                                        exchange.getResponseSender().send("{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}");
+                                        if (uncachedKeys) exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "max-age=0");
+                                        String keys = "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"Tj_l_tIBTginOtQbL0Pv5w\",\"n\":\"0YRbWAb1FGDpPUUcrIpJC6BwlswlKMS-z2wMAobdo0BNxNa7hG_gIHVPkXu14Jfo1JhUhS4wES3DdY3a6olqPcRN1TCCUVHd-1TLd1BBS-yq9tdJ6HCewhe5fXonaRRKwutvoH7i_eR4m3fQ1GoVzVAA3IngpTr4ptnM3Ef3fj-5wZYmitzrRUyQtfARTl3qGaXP_g8pHFAP0zrNVvOnV-jcNMKm8YZNcgcs1SuLSFtUDXpf7Nr2_xOhiNM-biES6Dza1sMLrlxULFuctudO9lykB7yFh3LHMxtIZyIUHuy0RbjuOGC5PmDowLttZpPI_j4ynJHAaAWr8Ddz764WdQ\",\"e\":\"AQAB\"}]}";
+                                        if (publishRotatedKey) {
+                                            Map<String, Object> document = com.networknt.config.JsonMapper.string2Map(keys);
+                                            java.util.List<Map<String, Object>> published = (java.util.List<Map<String, Object>>) document.get("keys");
+                                            Map<String, Object> rotated = new java.util.HashMap<>(published.get(0)); rotated.put("kid", "rotated-new");
+                                            published.add(rotated); keys = com.networknt.config.JsonMapper.toJson(document);
+                                        }
+                                        exchange.getResponseSender().send(keys);
                                     })
                                     .addPrefixPath("/oauth2/token", (exchange) -> {
                                         // Dispatch to a worker thread so startBlocking + readAllBytes
@@ -204,9 +215,20 @@ public class StatelessAuthHandlerTest {
         // Parse the POST body to extract the csrf value so the mock
         // server mirrors it into the JWT, just as a real token server would.
         String csrfValue = null;
+        String nextRotatingRefresh = null;
         try {
             byte[] bodyBytes = exchange.getInputStream().readAllBytes();
             String body = new String(bodyBytes, java.nio.charset.StandardCharsets.UTF_8);
+            if (rotatingRefresh != null && body.contains("rotation-test-")) {
+                String posted = java.util.Arrays.stream(body.split("&")).map(v -> v.split("=", 2))
+                        .filter(v -> v.length == 2 && v[1].startsWith("rotation-test-")).map(v -> v[1]).findFirst().orElse("");
+                if (!rotatingRefresh.equals(posted)) {
+                    exchange.setStatusCode(400); exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "text/plain");
+                    exchange.getResponseSender().send("Refresh token not found"); return;
+                }
+                nextRotatingRefresh = "rotation-test-" + java.util.UUID.randomUUID();
+                rotatingRefresh = nextRotatingRefresh; // No grace: the old credential is immediately unusable.
+            }
             if (body.contains("slow-refresh")) {
                 slowRefreshEntered.countDown();
                 if (!slowRefreshRelease.await(8, TimeUnit.SECONDS)) throw new IllegalStateException("Test release timed out");
@@ -267,9 +289,10 @@ public class StatelessAuthHandlerTest {
             tokenRequests.incrementAndGet();
             JwtClaims issued = getTestClaims(csrfValue != null ? csrfValue : csrfToken);
             if (invalidIssuedPolicy) issued.setAudience("wrong-provider-audience");
-            String token = getJwt(issued);
+            String token = getJwt(issued, nextRotatingRefresh == null ? "Tj_l_tIBTginOtQbL0Pv5w" : "rotated-new");
             map.put("access_token", token);
             map.put("token_type", "Bearer");
+            map.put("refresh_token", nextRotatingRefresh == null ? "fixture-refresh" : nextRotatingRefresh);
             map.put("expires_in", 600);
             exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
             exchange.getResponseSender().send(ByteBuffer.wrap(
@@ -291,6 +314,45 @@ public class StatelessAuthHandlerTest {
                 exchange.endExchange();
             }
         };
+    }
+
+    @Test
+    public void testRotatedRefreshSurvivesPendingKeyVerification() throws Exception {
+        Map<String, Object> original = Config.getInstance().getJsonMapConfig("statelessAuth");
+        try {
+            for (boolean existing : new boolean[]{false, true}) {
+                uncachedKeys = true; publishRotatedKey = false; jwksUnavailable = false;
+                Config.getInstance().putInConfigCache("statelessAuth", new java.util.HashMap<>(original));
+                StatelessAuthConfig.load();
+                String csrf = com.networknt.auth.csrf.Csrf.nonce();
+                String oldAccess = getJwt(30, csrf);
+                if (existing) Assertions.assertEquals(StatusCodes.OK, sendRequest(Methods.GET, "/api", "accessToken=" + getJwt(600, csrf) + "; csrf=" + csrf, csrf, "https://portal.test").getResponseCode());
+                String oldRefresh = "rotation-test-" + java.util.UUID.randomUUID(); rotatingRefresh = oldRefresh;
+                jwksUnavailable = true;
+                String originalCookies = "refreshToken=" + oldRefresh + "; csrf=" + csrf + (existing ? "; accessToken=" + oldAccess : "");
+                ClientResponse pending = sendRequest(Methods.POST, "/api", originalCookies, existing ? csrf : null, "https://portal.test");
+                Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, pending.getResponseCode());
+                Assertions.assertNull(pending.getResponseHeaders().getFirst("X-Test-Next"));
+                String retained = issuedCookie(pending, "refreshToken");
+                Assertions.assertNotEquals(oldRefresh, retained);
+                Assertions.assertEquals(rotatingRefresh, retained);
+                java.util.List<String> cookies = pending.getResponseHeaders().get(Headers.SET_COOKIE);
+                Assertions.assertEquals(1, cookies.size(), "only opaque refresh credential is retained");
+                Assertions.assertTrue(io.undertow.util.Cookies.parseSetCookieHeader(cookies.get(0)).isHttpOnly());
+                publishRotatedKey = true; jwksUnavailable = false;
+                Thread.sleep(5100); // Exceed the key-failure cooldown and completed-refresh cache.
+                ClientResponse obsolete = sendRequest(Methods.POST, "/api", "refreshToken=" + oldRefresh, null, "https://portal.test");
+                Assertions.assertEquals(StatusCodes.UNAUTHORIZED, obsolete.getResponseCode(), "old rotated credential is genuinely unusable");
+                ClientResponse recovered = sendRequest(Methods.POST, "/api", "refreshToken=" + retained + "; csrf=" + csrf
+                        + (existing ? "; accessToken=" + oldAccess : ""), existing ? csrf : null, "https://portal.test");
+                Assertions.assertEquals(existing ? StatusCodes.OK : StatusCodes.CONFLICT, recovered.getResponseCode());
+                Assertions.assertEquals(existing ? "true" : null, recovered.getResponseHeaders().getFirst("X-Test-Next"));
+                Assertions.assertNotNull(issuedCookie(recovered, "accessToken"));
+            }
+        } finally {
+            jwksUnavailable = false; uncachedKeys = false; publishRotatedKey = false; rotatingRefresh = null;
+            Config.getInstance().putInConfigCache("statelessAuth", original); StatelessAuthConfig.load();
+        }
     }
 
     @Test
@@ -774,6 +836,9 @@ public class StatelessAuthHandlerTest {
 
     @Test
     public void testRetiredKeyLogoutRequiresTrustedBrowser() throws Exception {
+        Map<String, Object> policy = Config.getInstance().getJsonMapConfig("statelessAuth");
+        Config.getInstance().putInConfigCache("statelessAuth", new java.util.HashMap<>(policy));
+        StatelessAuthConfig.load();
         String csrf = com.networknt.auth.csrf.Csrf.nonce();
         String token = retiredKeyJwt(csrf);
         String cookies = "accessToken=" + token + "; csrf=" + csrf;
@@ -911,8 +976,9 @@ public class StatelessAuthHandlerTest {
         return claims;
     }
 
-    private static String getJwt(JwtClaims claims) throws Exception {
-        String long_kid = "Tj_l_tIBTginOtQbL0Pv5w";
+    private static String getJwt(JwtClaims claims) throws Exception { return getJwt(claims, "Tj_l_tIBTginOtQbL0Pv5w"); }
+    private static String getJwt(JwtClaims claims, String kid) throws Exception {
+        String long_kid = kid;
         String long_key = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDRhFtYBvUUYOk9RRysikkLoHCWzCUoxL7PbAwCht2jQE3E1ruEb+AgdU+Re7Xgl+jUmFSFLjARLcN1jdrqiWo9xE3VMIJRUd37VMt3UEFL7Kr210nocJ7CF7l9eidpFErC62+gfuL95Hibd9DUahXNUADcieClOvim2czcR/d+P7nBliaK3OtFTJC18BFOXeoZpc/+DykcUA/TOs1W86dX6Nw0wqbxhk1yByzVK4tIW1QNel/s2vb/E6GI0z5uIRLoPNrWwwuuXFQsW5y25072XKQHvIWHcsczG0hnIhQe7LRFuO44YLk+YOjAu21mk8j+PjKckcBoBavwN3PvrhZ1AgMBAAECggEBAMuDYGLqJydLV2PPfSHQFVH430RrOfEW4y2CC0xtCl8n+CKqXm0vaqq8qLRtUWa+yEexS/AtxDz7ke/fAfVt00f6JYxe2Ub6WcBnRlg4GaURV6P7zWu98UghWWkbvaphLpmVrdFdT0pFoi2JvcyG23SaMKwINbDpzlvsFgUm1q3GoCIZXRc8iAKT+Iil1QmGdacGni/D2WzPTLSf1/acZU2TsPBWLS/jsjPe4ac4IDpxssDC+w6QArZ8U64DKJ531C4tK9o+RArQzBrEaZc1mAlw7xAPr36tXvOTUycux6k07ERSIIze2okVmmewL6tX1cb7tY1F8T+ebKGD3xGEAYUCgYEA9Lpy4593uTBww7AupcZq2YL8qHUfnvxIWiFbeIznUezyYyRbjyLDYj+g7QfQJHk579UckDZZDcT3H+wdh1LxQ7HKDlYQn2zt8Kdufs5cvSObeGkSqSY26g4QDRcRcRO3xFs8bQ/CnPNT7hsWSY+8wnuRvjUTstMA1vx1+/HHZfMCgYEA2yq8yFogdd2/wUcFlqjPgbJ98X9ZNbZ06uUCur4egseVlSVE+R2pigVVwFCDQpseGu2GVgW5q8kgDGsaJuEVWIhGZvS9IHONBz/WB0PmOZjXlXOhmT6iT6m/9bAQk8MtOee77lUVvgf7FO8XDKtuPh6VGJpr+YJHxHoEX/dbo/cCgYAjwy9Q1hffxxVjc1aNwR4SJRMY5uy1BfbovOEqD6UqEq8lD8YVd6YHsHaqzK589f4ibwkaheajnXnjf1SdVuCM3OlDCQ6qzXdD6KO8AhoJRa/Ne8VPVJdHwsBTuWBCHviGyDJfWaM93k0QiYLLQyb5YKdenVEAm9cOk5wGMkHKQwKBgH050CASDxYJm/UNZY4N6nLKz9da0lg0Zl2IeKTG2JwU+cz8PIqyfhqUrchyuG0oQG1WZjlkkBAtnRg7YffxB8dMJh3RnPabz2ri+KGyFCu4vwVvylfLR+aIsVvqO66SCJdbZy/ogcHQwY/WhK8CjL0FsF8cbLFl1SfYKAPFTCFFAoGANmOKonyafvWqsSkcl6vUTYYq53IN+qt0IJTDB2cEIEqLXtNth48HvdQkxDF3y4cNLZevhyuIy0Z3yWGbZM2yWbDNn8Q2W5RTyajofQu1mIv2EBzLeOoaSBPLX4G6r4cODSwWbjOdaNxcXd0+uYeAWDuQUSnHpHFJ2r1cpL/9Nbs=";
         String jwt;
 

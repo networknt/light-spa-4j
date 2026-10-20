@@ -229,7 +229,9 @@ fetched JWKS with no matching signing key makes the session unusable; a key-serv
 or parse failure remains uncertain and preserves cookies with 503. There is no
 second confirmation fetch against the default or other client.yml providers.
 The per-policy resolver shares in-flight lookups, bounds waiters to five seconds,
-caches lookup failures for five seconds, and uses jose4j's successful key cache and
-30-second unknown-key refresh reprieve. See [Token trust migration](TOKEN-TRUST-MIGRATION.md)
+caches lookup failures for five seconds, and keeps known keys available independently
+of unknown-key refreshes. Fresh-set refresh reprieves are uncertain, not proof of
+absence. Bounded stale retention and pending rotated-refresh credentials are described
+in the token-trust migration. See [Token trust migration](TOKEN-TRUST-MIGRATION.md)
 for the required configuration and key-rotation overlap. This supersedes the
 intermediate multi-provider confirmation implementation from PR #183.

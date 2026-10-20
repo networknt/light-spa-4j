@@ -166,6 +166,14 @@
           "minimum": 0,
           "maximum": 300,
           "default": 0
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
         }
       }
     },
@@ -202,6 +210,14 @@
         "tenantId": {
           "type": "string",
           "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
         }
       }
     },
@@ -271,8 +287,37 @@
               "minLength": 1
             }
           ]
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "issuer": {
+                "pattern": "/v2\\.0$"
+              }
+            },
+            "required": [
+              "issuer"
+            ]
+          },
+          "then": {
+            "properties": {
+              "audience": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          }
+        }
+      ]
     }
   },
   "allOf": [
