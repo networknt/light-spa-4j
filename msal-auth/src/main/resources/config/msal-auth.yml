@@ -21,3 +21,6 @@ websocketAllowedOrigins: ${msal-auth.websocketAllowedOrigins:}
 # Provision via secret configuration; no default key. Share across replicas.
 csrfSigningKeyId: ${msal-auth.csrfSigningKeyId:}
 csrfSigningKeys: ${msal-auth.csrfSigningKeys:}
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ${msal-auth.browserAllowedOrigins:}

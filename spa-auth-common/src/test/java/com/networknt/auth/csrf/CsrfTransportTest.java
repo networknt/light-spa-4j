@@ -16,13 +16,15 @@ class CsrfTransportTest {
                 (io.undertow.websockets.WebSocketConnectionCallback) (exchange, channel) -> channel.resumeReceives());
         server = Undertow.builder().setIoThreads(1).setWorkerThreads(2).addHttpListener(0, "127.0.0.1").setHandler(exchange -> {
             try {
-                var origins = exchange.getRequestPath().equals("/disabled-socket") ? Set.<String>of() : Csrf.origins("https://PORTAL.test:443");
-                if (exchange.getRequestPath().equals("/recovery")) {
-                    if (!Csrf.recoveryAllowed(exchange, origins)) throw Csrf.invalid();
+                boolean proxy = exchange.getRequestPath().startsWith("/proxy-");
+                var origins = proxy || exchange.getRequestPath().equals("/disabled-socket") ? Set.<String>of() : Csrf.origins("https://PORTAL.test:443");
+                var browserOrigins = exchange.getRequestPath().equals("/proxy-explicit") ? Csrf.origins("https://public.example") : origins;
+                if (exchange.getRequestPath().equals("/recovery") || proxy && !exchange.getRequestPath().equals("/proxy-socket")) {
+                    if (!Csrf.recoveryAllowed(exchange, browserOrigins)) throw Csrf.invalid();
                     exchange.getResponseSender().send("recovery-only");
                     return;
                 }
-                Csrf.request(exchange, origins, exchange.getRequestCookies().containsKey("csrf") ? exchange.getRequestCookies().get("csrf").getValue() : null);
+                Csrf.request(exchange, origins, browserOrigins, exchange.getRequestCookies().containsKey("csrf") ? exchange.getRequestCookies().get("csrf").getValue() : null);
                 if (exchange.getRequestPath().equals("/real-socket")) {
                     handshake.handleRequest(exchange);
                     return;
@@ -123,6 +125,17 @@ class CsrfTransportTest {
         rejected(send("POST", "/recovery", "Origin: https://evil.test\r\nX-Forwarded-Host: evil.test\r\nX-Forwarded-Proto: https\r\n"));
         rejected(send("POST", "/recovery", "Sec-Fetch-Site: same-site\r\n"));
         rejected(send("POST", "/recovery?csrf=known", "Origin: https://portal.test\r\n"));
+    }
+
+    @Test void proxyRecoveryUsesBrowserProvenanceOrExplicitPublicOriginsNotForwardedHeaders() throws Exception {
+        // Internal transport is HTTP/localhost; the browser saw HTTPS/public authority.
+        assertTrue(send("POST", "/proxy-metadata", "Origin: https://public.example\r\nSec-Fetch-Site: same-origin\r\n").endsWith("recovery-only"));
+        assertTrue(send("POST", "/proxy-explicit", "Origin: https://public.example\r\n").endsWith("recovery-only"));
+        rejected(send("POST", "/proxy-metadata", "Origin: https://public.example\r\nSec-Fetch-Site: same-site\r\n"));
+        rejected(send("POST", "/proxy-metadata", "Origin: https://public.example\r\nForwarded: proto=https;host=public.example\r\nX-Forwarded-Proto: https\r\nX-Forwarded-Host: public.example\r\n"));
+        rejected(send("POST", "/proxy-metadata", "Origin: null\r\nSec-Fetch-Site: same-origin\r\n"));
+        // Same-origin metadata never enables WebSockets when their allowlist is empty.
+        rejected(send("/proxy-socket", websocket("https://public.example", "chat, csrf.valid") + "Sec-Fetch-Site: same-origin\r\n"));
     }
 
     @Test void actualUpgradeNegotiatesApplicationProtocolWithoutCredential() throws Exception {

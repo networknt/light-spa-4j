@@ -21,3 +21,6 @@ websocketAllowedOrigins: ""
 # Provision via secret configuration; no default key. Share across replicas.
 csrfSigningKeyId: ""
 csrfSigningKeys: ""
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ""

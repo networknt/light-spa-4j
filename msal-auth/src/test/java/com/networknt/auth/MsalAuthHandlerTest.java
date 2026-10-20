@@ -189,6 +189,21 @@ class MsalAuthHandlerTest {
     }
 
     @Test
+    void trustedBrowserMustStillProveCsrfForUsableSessionLogout() throws Exception {
+        String csrf = csrf();
+        long before = MsalAuthHandler.logoutCsrfWouldRejectCount();
+        for (String header : List.of("", "wrong")) {
+            var builder = HttpRequest.newBuilder(baseUri.resolve("/auth/ms/logout"))
+                    .header("Cookie", "accessToken=entra-token; csrf=" + csrf).header("Origin", "https://portal.test");
+            if (!header.isEmpty()) builder.header("X-CSRF-TOKEN", header);
+            var response = CLIENT.send(builder.POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
+            Assertions.assertEquals(401, response.statusCode());
+            Assertions.assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+        }
+        Assertions.assertEquals(before + 2, MsalAuthHandler.logoutCsrfWouldRejectCount());
+    }
+
+    @Test
     void nativeReadOnlyRequestsStillRequireSessionBindingAndTrustedBrowser() throws Exception {
         String csrf = csrf();
         for (String origin : List.of("https://portal.test", "https://evil.test")) {

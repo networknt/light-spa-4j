@@ -7,3 +7,6 @@ client.tokenCcClientId: f7d42348-c647-4efb-a52d-4c5787421e72
 client.tokenCcClientSecret: f6h1FTI8Q3-7UScPZDzfXA
 
 statelessAuth.websocketAllowedOrigins: https://portal.test
+
+# Keep owner transport alive beyond the real 5s single-flight waiter deadline.
+client.timeout: 9000

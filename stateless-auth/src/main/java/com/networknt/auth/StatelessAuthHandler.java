@@ -200,7 +200,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 String headerCsrf;
-                try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), exchange.getRequestCookie(Constants.CSRF) == null ? null : exchange.getRequestCookie(Constants.CSRF).getValue()); }
+                try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), config.getBrowserAllowedOrigins(), exchange.getRequestCookie(Constants.CSRF) == null ? null : exchange.getRequestCookie(Constants.CSRF).getValue()); }
                 catch (IllegalArgumentException e) { rejectCsrf(exchange, Csrf.code(e)); return; }
                 // verify csrf from jwt token in httpOnly cookie
                 if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
@@ -214,8 +214,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
                 // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
                 // per minute will make the session continue until the browser tab is closed.
-                if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
+                if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000
+                        && exchange.getRequestCookie(REFRESH_TOKEN) != null) {
                     jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config, jwtCsrf);
+                    // Response completion can be asynchronous on worker threads. Use the explicit
+                    // renewal outcome, not isComplete(), to prevent executing an unaccepted action.
+                    if (jwt == null) return;
+                } else if (claims.getExpirationTime().getValueInMillis() <= System.currentTimeMillis()) {
+                    setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10001", "AUTH_TOKEN_EXPIRED",
+                            "Session expired and no refresh token is available. Sign in again."));
+                    return;
                 }
             }
 
@@ -289,20 +297,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
         catch (IllegalArgumentException ignored) { }
         boolean headerMissing = headerCsrf == null;
-        boolean valid = false;
-        if (!headerMissing) {
-            try {
-                Cookie access = exchange.getRequestCookie(ACCESS_TOKEN);
-                Cookie csrf = exchange.getRequestCookie(Constants.CSRF);
-                if (access != null && csrf != null && Csrf.equal(headerCsrf, csrf.getValue())) {
-                    // Expiry relaxation is limited to cleanup of a signed, bound session.
-                    JwtClaims claims = jwtVerifier.verifyJwt(access.getValue(), true, true);
-                    valid = Csrf.equal(headerCsrf, claims.getStringClaimValue(Constants.CSRF));
-                }
-            } catch (Exception ignored) { /* Invalid/partial sessions fail closed without credential diagnostics. */ }
+        Cookie access = exchange.getRequestCookie(ACCESS_TOKEN);
+        Cookie csrf = exchange.getRequestCookie(Constants.CSRF);
+        String cookieCsrf = csrf == null ? null : csrf.getValue();
+        LogoutBinding.State binding = LogoutBinding.classify(jwtVerifier, access == null ? null : access.getValue(), cookieCsrf);
+        if (binding == LogoutBinding.State.USABLE && Csrf.equal(headerCsrf, cookieCsrf)) return true;
+        if (binding == LogoutBinding.State.UNUSABLE && Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) return true;
+        if (binding == LogoutBinding.State.UNKNOWN && config.isLogoutCsrfEnforced()) {
+            sessionUnavailable(exchange);
+            return false;
         }
-        if (valid) return true;
-        if (Csrf.recoveryAllowed(exchange, config.getWebsocketAllowedOrigins())) return true;
         long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
         String failure = headerMissing ? "header_missing" : "cookie_invalid";
         logger.info("event=spa_auth_logout_csrf_would_reject runtime=stateless-auth endpoint=logout " +
@@ -330,27 +334,45 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private void sessionRefreshed(HttpServerExchange exchange) {
         exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
         exchange.getResponseHeaders().put(new HttpString("X-Session-Refreshed"), "true");
-        setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "SESSION_REFRESHED",
+        setExchangeStatus(exchange, new Status(StatusCodes.CONFLICT, "SPA_SESSION_REFRESHED", "SESSION_REFRESHED",
                 "Session cookies refreshed. Retry explicitly with the new CSRF cookie; the request was not executed."));
     }
 
     private void recoverSession(HttpServerExchange exchange, StatelessAuthConfig config) throws Exception {
-        if (!Csrf.recoveryAllowed(exchange, config.getWebsocketAllowedOrigins())) {
+        if (!Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) {
             rejectCsrf(exchange, "ERR10039");
             return;
         }
         exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        RefreshTokenSingleFlight.RefreshResult result;
         try {
-            var result = RefreshTokenSingleFlight.recover(exchange.getRequestCookie(REFRESH_TOKEN).getValue(), logger);
-            if (result.isSuccess()) {
-                setCookies(exchange, result.getResponse(), result.getCsrf(), config);
-                if (!exchange.isComplete()) sessionRefreshed(exchange);
-                return;
-            }
-        } catch (Exception ignored) { /* Clear failed recovery without exposing credentials. */ }
-        removeCookies(exchange, config);
-        setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
-                "Session recovery failed. Sign in again."));
+            result = RefreshTokenSingleFlight.recover(exchange.getRequestCookie(REFRESH_TOKEN).getValue(), logger);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            sessionUnavailable(exchange);
+            return;
+        } catch (Exception e) {
+            // Waiter timeout, network failure and unknown outcomes must preserve the cookie pair.
+            sessionUnavailable(exchange);
+            return;
+        }
+        if (result.isSuccess()) {
+            setCookies(exchange, result.getResponse(), result.getCsrf(), config);
+            if (!exchange.isResponseStarted()) sessionRefreshed(exchange);
+        } else if (result.isInvalidRefreshToken()) {
+            removeCookies(exchange, config);
+            setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
+                    "Refresh token is no longer valid. Sign in again."));
+        } else {
+            sessionUnavailable(exchange);
+        }
+    }
+
+    private void sessionUnavailable(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "1");
+        setExchangeStatus(exchange, new Status(StatusCodes.SERVICE_UNAVAILABLE, "SPA_SESSION_TEMPORARY_FAILURE", "SESSION_TEMPORARILY_UNAVAILABLE",
+                "Session state could not be determined. Cookies were preserved; retry later."));
     }
 
     private String renewToken(HttpServerExchange exchange, Cookie cookie, StatelessAuthConfig config, String verifiedCsrf) throws Exception {
@@ -358,20 +380,32 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         if(cookie != null) {
             String refreshToken = cookie.getValue();
             if(refreshToken != null) {
-                RefreshTokenSingleFlight.RefreshResult result = RefreshTokenSingleFlight.renew(refreshToken, verifiedCsrf, logger);
+                RefreshTokenSingleFlight.RefreshResult result;
+                try {
+                    result = RefreshTokenSingleFlight.renew(refreshToken, verifiedCsrf, logger);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    sessionUnavailable(exchange);
+                    return null;
+                } catch (Exception e) {
+                    sessionUnavailable(exchange);
+                    return null;
+                }
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
                     setCookies(exchange, response, result.getCsrf(), config);
+                    if (exchange.isResponseStarted()) return null;
                     if (!Csrf.equal(verifiedCsrf, result.getCsrf())) {
                         sessionRefreshed(exchange);
                         return null;
                     }
                     jwt = response.getAccessToken();
-                } else {
-                    if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
-                    // remove the cookies to log out the user
+                } else if (result.isInvalidRefreshToken()) {
                     removeCookies(exchange, config);
-                    exchange.endExchange();
+                    setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
+                            "Refresh token is no longer valid. Sign in again."));
+                } else {
+                    sessionUnavailable(exchange);
                 }
             }
         }

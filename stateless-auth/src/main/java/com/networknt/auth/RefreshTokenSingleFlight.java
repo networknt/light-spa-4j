@@ -143,6 +143,11 @@ public final class RefreshTokenSingleFlight {
         public boolean isSuccess() {
             return error == null;
         }
+
+        /** The client maps transport failures to 401 too; only a terminal provider code is definitive. */
+        public boolean isInvalidRefreshToken() {
+            return error != null && error.getStatusCode() == 404 && "ERR12029".equals(error.getCode());
+        }
     }
 
     private static class CachedRefreshResult {

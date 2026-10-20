@@ -99,7 +99,7 @@ public class MsalAuthHandler implements MiddlewareHandler {
             String token = accessToken.getValue();
             if (verifyMicrosoftToken(exchange, token, config) == null) return;
             String requestCsrf;
-            try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), cookieValue(exchange, Constants.CSRF)); }
+            try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), config.getBrowserAllowedOrigins(), cookieValue(exchange, Constants.CSRF)); }
             catch (IllegalArgumentException e) {
                 rejectUnauthorized(exchange, Csrf.code(e), "CSRF_VALIDATION_FAILED", "Missing or invalid CSRF transport");
                 return;
@@ -191,9 +191,10 @@ public class MsalAuthHandler implements MiddlewareHandler {
         try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
         catch (IllegalArgumentException ignored) { }
         boolean missing = requestCsrf == null;
-        if (!missing && Csrf.equal(requestCsrf, cookieValue(exchange, Constants.CSRF))
-                && config.getSessionCsrf().verify(requestCsrf, cookieValue(exchange, ACCESS_TOKEN))) return true;
-        if (Csrf.recoveryAllowed(exchange, config.getWebsocketAllowedOrigins())) return true;
+        String cookieCsrf = cookieValue(exchange, Constants.CSRF);
+        boolean usableBinding = config.getSessionCsrf().verify(cookieCsrf, cookieValue(exchange, ACCESS_TOKEN));
+        if (usableBinding && Csrf.equal(requestCsrf, cookieCsrf)) return true;
+        if (!usableBinding && Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) return true;
         long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
         logger.info("event=spa_auth_logout_csrf_would_reject runtime=msal-auth endpoint=logout " +
                         "failure={} enforced={} count={} counterScope=process reset=process_restart",

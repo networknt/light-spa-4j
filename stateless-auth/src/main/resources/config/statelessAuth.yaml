@@ -58,3 +58,6 @@ githubClientSecret: ${statelessAuth.githubClientSecret:secret}
 
 # Exact allowed browser Origins for cookie-authenticated WebSockets (CSV). Empty denies.
 websocketAllowedOrigins: ""
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ""

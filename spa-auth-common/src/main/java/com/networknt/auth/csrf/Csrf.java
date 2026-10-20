@@ -99,6 +99,9 @@ public final class Csrf {
             if (supplied != null) {
                 String normalized = origin(supplied);
                 if (normalized == null) return false;
+                // Browser-authenticated metadata describes the public request, including across TLS
+                // termination/Host rewriting. An external site cannot set this forbidden header.
+                if ("same-origin".equals(single(exchange, FETCH_SITE))) return true;
                 // Host is the browser's target authority; forwarding headers are deliberately ignored.
                 String target = origin(exchange.getRequestScheme() + "://" + exchange.getHostAndPort());
                 return normalized.equals(target) || allowedOrigins.contains(normalized);
@@ -128,6 +131,10 @@ public final class Csrf {
 
     /** Native read-only browser requests can use a bound cookie plus trusted browser provenance. */
     public static String request(HttpServerExchange exchange, Set<String> allowedOrigins, String boundCookie) {
+        return request(exchange, allowedOrigins, allowedOrigins, boundCookie);
+    }
+
+    public static String request(HttpServerExchange exchange, Set<String> allowedOrigins, Set<String> browserOrigins, String boundCookie) {
         rejectQuery(exchange);
         String header = single(exchange, HEADER);
         if (header != null && header.isBlank()) header = null;
@@ -166,7 +173,7 @@ public final class Csrf {
         if (header != null && protocolToken != null && !equal(header, protocolToken)) throw invalid();
         String value = header != null ? header : protocolToken;
         if (value == null && !websocket && (Methods.GET.equals(exchange.getRequestMethod()) || Methods.HEAD.equals(exchange.getRequestMethod()))
-                && trustedBrowser(exchange, allowedOrigins)) value = boundCookie;
+                && trustedBrowser(exchange, browserOrigins)) value = boundCookie;
         if (!bounded(value)) throw value == null || value.isBlank() ? new Failure("ERR10036") : invalid();
         // Downstream handshake handlers must never select or echo the credential subprotocol.
         if (websocket && protocols != null) {

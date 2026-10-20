@@ -12,6 +12,12 @@
     "cookieSameSite"
   ],
   "properties": {
+        "browserAllowedOrigins": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Public HTTP browser Origins for proxy-safe recovery and read-only requests.",
+            "default": []
+        },
         "websocketAllowedOrigins": {
             "type": ["string", "array"],
             "items": {"type": "string"},

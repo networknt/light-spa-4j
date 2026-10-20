@@ -89,7 +89,7 @@ class MsalProductionConfigTest {
     @Test
     void disabledHandlerIgnoresPolicySettings() {
         Map<String, Object> map = new HashMap<>(Map.of("enabled", false, "requiredScopes", 42, "tenantId", 7,
-                "websocketAllowedOrigins", 42, "csrfSigningKeys", 42));
+                "websocketAllowedOrigins", 42, "browserAllowedOrigins", 42, "csrfSigningKeys", 42));
         MsalAuthConfig config = assertDoesNotThrow(() -> new MsalAuthConfig(map));
         assertFalse(config.isEnabled());
         assertNull(config.getTokenPolicy());
@@ -137,5 +137,15 @@ class MsalProductionConfigTest {
         MsalAuthConfig next = MsalAuthConfig.loadSnapshot(rotated);
         assertFalse(next.getSessionCsrf().verify(value, "session"));
         assertTrue(next.getSessionCsrf().verify(next.getSessionCsrf().issue("session"), "session"));
+    }
+
+    @Test
+    void httpBrowserOriginsCanBeConfiguredWithoutEnablingWebsockets() {
+        Map<String, Object> map = validMap();
+        map.put("browserAllowedOrigins", "HTTPS://PUBLIC.example:443");
+        map.put("websocketAllowedOrigins", List.of());
+        MsalAuthConfig config = new MsalAuthConfig(map);
+        assertEquals(java.util.Set.of("https://public.example"), config.getBrowserAllowedOrigins());
+        assertTrue(config.getWebsocketAllowedOrigins().isEmpty());
     }
 }

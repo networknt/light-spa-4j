@@ -61,6 +61,10 @@ public class StatelessAuthConfig {
             description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
     private Set<String> websocketAllowedOrigins = Set.of();
     public Set<String> getWebsocketAllowedOrigins() { return websocketAllowedOrigins; }
+    @ArrayField(configFieldName = "browserAllowedOrigins", externalizedKeyName = "browserAllowedOrigins", items = String.class,
+            description = "Public browser Origins trusted for HTTP recovery/read-only requests, including TLS-terminating proxies.")
+    private Set<String> browserAllowedOrigins = Set.of();
+    public Set<String> getBrowserAllowedOrigins() { return browserAllowedOrigins; }
     private static volatile StatelessAuthConfig instance;
 
     // --- Annotated Fields ---
@@ -300,6 +304,9 @@ public class StatelessAuthConfig {
     // --- Private Config Loader ---
     private void setConfigData() {
         websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
+        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
+        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
+        browserAllowedOrigins = Set.copyOf(browserOrigins);
         Object object = mappedConfig.get(ENABLED);
         if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);
 

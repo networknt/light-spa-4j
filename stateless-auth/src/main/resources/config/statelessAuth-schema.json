@@ -3,6 +3,12 @@
   "type" : "object",
   "required" : [ "enabled", "redirectUri", "denyUri", "enableHttp2", "authPath", "logoutPath", "cookieDomain", "cookiePath", "cookieTimeoutUri", "cookieSecure", "sessionTimeout", "rememberMeTimeout", "bootstrapToken", "googlePath", "googleClientId", "googleClientSecret", "googleRedirectUri", "facebookPath", "facebookClientId", "facebookClientSecret", "githubPath", "githubClientId", "githubClientSecret" ],
   "properties" : {
+        "browserAllowedOrigins": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Public HTTP browser Origins for proxy-safe recovery and read-only requests.",
+            "default": []
+        },
         "websocketAllowedOrigins": {
             "type": ["string", "array"],
             "items": {"type": "string"},

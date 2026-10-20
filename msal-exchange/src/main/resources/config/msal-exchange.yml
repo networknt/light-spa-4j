@@ -30,3 +30,6 @@ msalAccessTokenCookie: ${msal-exchange.msalAccessTokenCookie:msalAccessToken}
 
 # Exact allowed browser Origins for cookie-authenticated WebSockets (CSV). Empty denies.
 websocketAllowedOrigins: ${msal-exchange.websocketAllowedOrigins:}
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ${msal-exchange.browserAllowedOrigins:}

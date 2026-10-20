@@ -64,12 +64,28 @@ Remove query credentials from clients and review proxy/access logging.
 Native read-only browser GET/HEAD requests (EventSource/SSE, images, download
 links, and same-origin `window.open`) can use the CSRF cookie without a custom
 header. The handler still verifies that cookie against the signed session
-binding and requires trusted browser provenance: an exact trusted Origin, the
-gateway's direct request origin, or `Sec-Fetch-Site: same-origin` when Origin is
-absent. A present malformed, `null`, or untrusted Origin is never overridden by
-Fetch Metadata. Same-site and cross-site metadata alone are insufficient. This
-fallback does not apply to unsafe HTTP methods or WebSockets. Preserve Origin
-and Fetch Metadata through proxies; forwarding headers cannot establish trust.
+binding and requires trusted browser provenance: an exact configured HTTP browser
+Origin, the gateway's direct request origin, or browser-generated
+`Sec-Fetch-Site: same-origin`. The metadata describes the public request even when
+a proxy terminates TLS or rewrites Host; it can establish same-origin provenance
+with a well-formed HTTPS Origin even when the gateway sees HTTP. A present
+malformed or `null` Origin is never accepted. Same-site and cross-site metadata
+alone are insufficient. This fallback does not apply to unsafe HTTP methods or
+WebSockets. Preserve the browser's Origin and Fetch Metadata through proxies;
+forwarding headers cannot establish trust.
+
+For clients without Fetch Metadata, or a separately hosted trusted UI, configure
+the public browser origin explicitly, independently of WebSocket enablement:
+
+```yaml
+statelessAuth.browserAllowedOrigins: "https://portal.example.com"
+msal-exchange.browserAllowedOrigins: "https://portal.example.com"
+msal-auth.browserAllowedOrigins: "https://portal.example.com"
+```
+
+Do not infer public scheme/host from untrusted `Forwarded` or `X-Forwarded-*`
+headers. Existing `websocketAllowedOrigins` entries remain trusted HTTP browser
+Origins for compatibility, but `browserAllowedOrigins` does not enable WebSockets.
 
 Browser WebSockets may send `csrf.<value>` in `Sec-WebSocket-Protocol`. Each
 client must also offer a supported noncredential application protocol (for
@@ -109,12 +125,18 @@ application protocol; other application protocols are preserved.
 
 `logoutCsrfEnforced` defaults to `true` in all three handlers and templates.
 The usual logout path checks the access-token cookie and its bound CSRF value,
-including cookie/header agreement. Signed expired tokens can be used for
-cleanup; expiry relaxation does not authorize API access. A POST with trusted
-browser provenance can also clear unusable sessions: orphan cookies, old
-unsigned CSRF cookies, and values signed by a removed key. This path only deletes
-owned cookies; it neither authenticates nor forwards any request. Untrusted
-requests cannot use it. No-session logout remains an idempotent POST.
+including cookie/header agreement. A usable cookie pair always requires that
+proof, even from a trusted browser Origin. Missing or wrong **request** CSRF does
+not make the cookie pair unusable: enforcement and would-reject counters still
+apply. Signed expired tokens can be used for cleanup; expiry relaxation does not
+authorize API access.
+
+Only independently unusable cookie state can use trusted-browser cleanup:
+missing/malformed access cookies, an absent/invalid cookie binding, old unsigned
+CSRF cookies, or values signed by a removed key. This POST path only deletes owned
+cookies; it neither authenticates nor forwards a request. An indeterminate JWT
+key lookup is not proof of unusability and does not trigger cleanup. Untrusted
+requests cannot use this fallback. No-session logout remains an idempotent POST.
 
 An explicit `logoutCsrfEnforced: false` retains the existing observation-only
 migration escape hatch and counters. Such deployments do **not** enforce logout
@@ -124,7 +146,8 @@ Exchange/stateless renewal preserves a verified strong (32-byte) CSRF nonce.
 Rotating it on every ordinary refresh would invalidate headers already prepared
 by parallel requests or another tab. Legacy UUID CSRF claims are upgraded to a
 fresh 32-byte nonce on renewal; the gateway sets the new cookie pair and returns
-HTTP 401 with message `SESSION_REFRESHED` and `X-Session-Refreshed: true`, without
+HTTP **409** with code `SPA_SESSION_REFRESHED`, message `SESSION_REFRESHED`, and
+`X-Session-Refreshed: true`, without
 injecting Authorization or invoking the downstream handler. The original action
 was not executed. Retry explicitly after rereading the CSRF cookie; do not add
 automatic replay of unsafe operations.
@@ -132,11 +155,29 @@ automatic replay of unsafe operations.
 When the access cookie has disappeared but a refresh cookie remains, trusted
 browser requests can likewise bootstrap a fresh signed session and CSRF nonce.
 The unverified old CSRF cookie is never copied into the new token. This recovery
-returns the same non-forwarding 401, including for a POST; it does not execute
-that POST. Failed refresh clears owned cookies before a 401 requiring sign-in.
+returns the same non-forwarding 409, including for a POST; it does not execute
+that POST. This outcome is distinct from both authentication failure and an
+outage, so clients must not redirect to login for it. Existing clients may show an
+ordinary recoverable error until explicit-retry UI handling is added; this change
+does not claim transparent replay of the original action.
+
+Timeouts (including a single-flight waiter's five-second deadline), network errors,
+temporary token-server errors, and unknown outcomes preserve all cookies. They
+return HTTP **503**, code `SPA_SESSION_TEMPORARY_FAILURE`, and `Retry-After: 1`,
+without downstream execution. A late waiter cannot erase an owner's successful
+session rotation. The owner is not canceled when a waiter times out. The same
+classification applies to proactive renewal of an authenticated session.
+
+Only an explicit terminal refresh-token result clears owned cookies and returns
+a sign-in-required 401. Currently the supported light-oauth signal is HTTP status
+404 in the returned Status with code `ERR12029` (`REFRESH_TOKEN_NOT_FOUND`). Generic
+401s such as `ERR10053` from the OAuth client are **not** terminal: that client uses
+401 for network errors too. Unrecognized provider error shapes remain temporary
+rather than destroying a session.
+
 Untrusted or WebSocket requests cannot trigger recovery and receive a CSRF 401.
-They do not lose cookies as a side effect. A trusted POST logout always provides
-a cleanup path.
+They do not lose cookies as a side effect. An unusable partial session can still
+be cleared by trusted POST logout.
 
 Concurrent refresh results are isolated by refresh token and verified CSRF
 context; refresh-only recovery has a separate cache context. New login issuance
@@ -145,7 +186,8 @@ through ordinary renewal; legacy values no longer survive indefinitely.
 
 ## Client and rollout checks
 
-1. Provision keys for direct `msal-auth`, configure exact WebSocket Origins, and
+1. Provision keys for direct `msal-auth`, configure HTTP browser Origins for TLS
+   proxies/clients without Fetch Metadata and exact WebSocket Origins, and
    enable logout enforcement before deploying the new handlers. Deploy the new
    transitive `spa-auth-common` artifact with the handler jars.
 2. Existing unsigned direct-MSAL CSRF cookies require re-login. Plan a coordinated
@@ -156,9 +198,11 @@ through ordinary renewal; legacy values no longer survive indefinitely.
    Login/exchange and HTTP clients can keep reading the opaque `csrf` cookie and
    sending `X-CSRF-TOKEN`; no login rewrite is required. Query-based clients must
    change. Verify login/exchange, HTTP, POST logout, renewal/expiry, Chat, and
-   Controller end to end. Handle `SESSION_REFRESHED` as an unexecuted request:
-   offer an explicit retry after reading the new cookies. Sign in again if the
-   refresh itself is invalid; trusted-browser logout can clear stale cookies.
+   Controller end to end. Handle 409 / `SPA_SESSION_REFRESHED` as an unexecuted
+   request: offer an explicit retry after reading the new cookies. Preserve the
+   session and offer a later retry for 503 / `SPA_SESSION_TEMPORARY_FAILURE`.
+   Sign in again only for a terminal authentication failure; trusted-browser
+   logout can clear unusable stale cookies.
 4. Keep cookies Secure in production and check their domain/path scope. A future
    `__Host-` naming migration needs frontend reader changes and host-topology
    validation; it is not part of this format/transport change.

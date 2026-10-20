@@ -27,3 +27,6 @@ client.tokenExUri: /oauth2/N2CMw0HGQXeLvC1wBfln2A/token
 client.tokenRtUri: /oauth2/N2CMw0HGQXeLvC1wBfln2A/token
 
 msal-exchange.websocketAllowedOrigins: https://portal.test
+
+# Keep owner transport alive beyond the real 5s single-flight waiter deadline.
+client.timeout: 9000
