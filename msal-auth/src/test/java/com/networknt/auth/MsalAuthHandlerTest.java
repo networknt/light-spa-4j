@@ -33,6 +33,12 @@ class MsalAuthHandlerTest {
                 JwtClaims claims = new JwtClaims();
                 claims.setExpirationTimeMinutesInTheFuture(10);
                 claims.setSubject("test-user");
+                claims.setIssuer("https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0");
+                claims.setAudience("22222222-2222-2222-2222-222222222222");
+                claims.setClaim("tid", "11111111-1111-1111-1111-111111111111");
+                claims.setClaim("ver", "2.0");
+                claims.setClaim("azp", "33333333-3333-3333-3333-333333333333");
+                claims.setClaim("scp", "access_as_user");
                 return claims;
             }
         };
@@ -52,6 +58,7 @@ class MsalAuthHandlerTest {
     @AfterAll
     static void stop() {
         if (server != null) server.stop();
+        MsalAuthHandler.installVerifierForTest(null);
     }
 
     @Test

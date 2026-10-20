@@ -4,9 +4,11 @@ import com.networknt.config.Config;
 import com.networknt.config.schema.BooleanField;
 import com.networknt.config.schema.IntegerField;
 import com.networknt.config.schema.StringField;
+import com.networknt.config.schema.ArrayField;
 import com.networknt.server.ModuleRegistry;
 
 import java.util.Map;
+import java.util.List;
 
 /** Configuration for the direct MSAL BFF authentication handler. */
 public class MsalAuthConfig {
@@ -17,6 +19,22 @@ public class MsalAuthConfig {
     @BooleanField(configFieldName = "enabled", externalizedKeyName = "enabled",
             description = "Enables direct MSAL authentication.", defaultValue = "true")
     private boolean enabled = true;
+    @StringField(configFieldName = "tenantId", externalizedKeyName = "tenantId",
+            description = "Required Entra tenant UUID. Common/organizations authorities are not accepted.")
+    private String tenantId;
+    @StringField(configFieldName = "issuer", externalizedKeyName = "issuer",
+            description = "Exact tenant-specific HTTPS issuer from the Entra metadata document.")
+    private String issuer;
+    @StringField(configFieldName = "audience", externalizedKeyName = "audience",
+            description = "Exact audience of this API, not Microsoft Graph or the SPA client.")
+    private String audience;
+    @ArrayField(configFieldName = "requiredScopes", externalizedKeyName = "requiredScopes", items = String.class,
+            description = "Nonempty list of delegated API scopes. Every listed scope is required.")
+    private List<String> requiredScopes = List.of();
+    @ArrayField(configFieldName = "allowedClientIds", externalizedKeyName = "allowedClientIds", items = String.class,
+            description = "Nonempty list of client application UUIDs allowed to establish browser sessions.")
+    private List<String> allowedClientIds = List.of();
+    private MsalTokenPolicy tokenPolicy;
     @StringField(configFieldName = "loginPath", externalizedKeyName = "loginPath",
             description = "Endpoint used to establish an MSAL-backed gateway session.", defaultValue = "/auth/ms/login")
     private String loginPath = "/auth/ms/login";
@@ -79,8 +97,31 @@ public class MsalAuthConfig {
         value = mappedConfig.get("sessionTimeout");
         if (value != null) sessionTimeout = Config.loadIntegerValue("sessionTimeout", value);
         value = mappedConfig.get("cookieSameSite"); if (value != null) cookieSameSite = (String) value;
+        tenantId = stringSetting("tenantId");
+        issuer = stringSetting("issuer");
+        audience = stringSetting("audience");
+        requiredScopes = stringListSetting("requiredScopes");
+        allowedClientIds = stringListSetting("allowedClientIds");
+        if (enabled) tokenPolicy = new MsalTokenPolicy(tenantId, issuer, audience, requiredScopes, allowedClientIds);
     }
 
+    private String stringSetting(String name) {
+        Object value = mappedConfig.get(name);
+        if (value == null) return null;
+        if (!(value instanceof String text))
+            throw new IllegalArgumentException("msal-auth." + name + " must be a string");
+        return text;
+    }
+
+    private List<String> stringListSetting(String name) {
+        Object value = mappedConfig.get(name);
+        if (value == null) return List.of();
+        if (!(value instanceof List<?> list) || list.stream().anyMatch(item -> !(item instanceof String)))
+            throw new IllegalArgumentException("msal-auth." + name + " must be a list of strings");
+        return list.stream().map(String.class::cast).toList();
+    }
+
+    MsalTokenPolicy getTokenPolicy() { return tokenPolicy; }
     public boolean isEnabled() { return enabled; }
     public String getLoginPath() { return loginPath; }
     public String getLogoutPath() { return logoutPath; }

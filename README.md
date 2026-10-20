@@ -1,6 +1,8 @@
 # light-spa-4j
 Middleware handlers for Single Page Application
 
+For direct Entra browser sessions, see the [MSAL authentication configuration and migration guide](msal-auth/README.md).
+
 [Stack Overflow](https://stackoverflow.com/questions/tagged/light-4j) |
 [Google Group](https://groups.google.com/forum/#!forum/light-4j) |
 [Gitter Chat](https://gitter.im/networknt/light-spa-4j) |
