@@ -31,6 +31,7 @@
     <description>A auth handler that handles OAuth 2.0 authorization code and get jwt token for the Single Page Applications.</description>
 
     <dependencies>
+        <dependency><groupId>com.networknt</groupId><artifactId>spa-auth-common</artifactId></dependency>
         <dependency>
             <groupId>com.networknt</groupId>
             <artifactId>config</artifactId>

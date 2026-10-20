@@ -3,6 +3,11 @@
   "type" : "object",
   "required" : [ "enabled", "redirectUri", "denyUri", "enableHttp2", "authPath", "logoutPath", "cookieDomain", "cookiePath", "cookieTimeoutUri", "cookieSecure", "sessionTimeout", "rememberMeTimeout", "bootstrapToken", "googlePath", "googleClientId", "googleClientSecret", "googleRedirectUri", "facebookPath", "facebookClientId", "facebookClientSecret", "githubPath", "githubClientId", "githubClientSecret" ],
   "properties" : {
+        "websocketAllowedOrigins": {
+            "type": "string",
+            "description": "Exact comma-separated allowed WebSocket Origins. Empty denies cookie-authenticated WebSockets.",
+            "default": ""
+        },
     "enabled" : {
       "type" : "boolean",
       "description" : "Indicate if the StatelessAuthHandler is enabled or not",
@@ -35,8 +40,8 @@
     },
     "logoutCsrfEnforced" : {
       "type" : "boolean",
-      "description" : "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
-      "default" : false
+      "description": "Enforce session-bound CSRF on logout. False is insecure observation-only migration mode.",
+      "default" : true
     },
     "cookieDomain" : {
       "type" : "string",

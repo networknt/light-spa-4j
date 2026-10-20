@@ -6,7 +6,7 @@ import com.networknt.client.oauth.TokenRequest;
 import com.networknt.client.oauth.TokenResponse;
 import com.networknt.monad.Result;
 import com.networknt.status.Status;
-import com.networknt.utility.UuidUtil;
+import com.networknt.auth.csrf.Csrf;
 import org.slf4j.Logger;
 
 import java.nio.charset.StandardCharsets;
@@ -29,7 +29,12 @@ public final class RefreshTokenSingleFlight {
     }
 
     public static RefreshResult renew(String refreshToken, Logger logger) throws Exception {
-        String key = refreshTokenKey(refreshToken);
+        return renew(refreshToken, null, logger);
+    }
+
+    public static RefreshResult renew(String refreshToken, String verifiedCsrf, Logger logger) throws Exception {
+        // Keep legacy direct callers separate from requests with an authenticated CSRF context.
+        String key = refreshTokenKey(refreshToken) + ":" + (verifiedCsrf == null ? "new" : refreshTokenKey(verifiedCsrf));
         cleanupRefreshCaches();
         CachedRefreshResult cached = refreshCompleted.get(key);
         if (cached != null) {
@@ -45,7 +50,7 @@ public final class RefreshTokenSingleFlight {
         if (existingFuture == null) {
             try {
                 if (logger.isDebugEnabled()) logger.debug("Starting refresh for token hash {}", shortKey(key));
-                RefreshResult result = refreshToken(refreshToken);
+                RefreshResult result = refreshToken(refreshToken, verifiedCsrf);
                 if (result.isSuccess()) {
                     refreshCompleted.put(key, new CachedRefreshResult(result, System.currentTimeMillis() + REFRESH_COMPLETED_CACHE_MILLIS));
                 }
@@ -63,9 +68,9 @@ public final class RefreshTokenSingleFlight {
         return existingFuture.get(REFRESH_WAIT_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS);
     }
 
-    private static RefreshResult refreshToken(String refreshToken) {
+    private static RefreshResult refreshToken(String refreshToken, String verifiedCsrf) {
         TokenRequest tokenRequest = new RefreshTokenRequest();
-        String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
+        String csrf = verifiedCsrf == null ? Csrf.nonce() : verifiedCsrf;
         tokenRequest.setCsrf(csrf);
         ((RefreshTokenRequest) tokenRequest).setRefreshToken(refreshToken);
         Result<TokenResponse> result = OauthHelper.getTokenResult(tokenRequest);

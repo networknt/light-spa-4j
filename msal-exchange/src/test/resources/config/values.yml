@@ -24,3 +24,6 @@ client.tokenCcClientId: f7d42348-c647-4efb-a52d-4c5787421e72
 client.tokenCcClientSecret: f6h1FTI8Q3-7UScPZDzfXA
 
 client.tokenExUri: /oauth2/N2CMw0HGQXeLvC1wBfln2A/token
+client.tokenRtUri: /oauth2/N2CMw0HGQXeLvC1wBfln2A/token
+
+msal-exchange.websocketAllowedOrigins: https://portal.test

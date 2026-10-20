@@ -26,7 +26,7 @@ import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
-import com.networknt.utility.UuidUtil;
+import com.networknt.auth.csrf.Csrf;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
 import io.undertow.server.HttpServerExchange;
@@ -102,7 +102,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
     private static final String ROLE = "role";
-    private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
     private static final String METHOD_NOT_ALLOWED = "ERR10008";
     private static final String CACHE_CONTROL_NO_STORE = "no-store";
     private static final String POST_ONLY_ALLOW = Methods.POST_STRING;
@@ -127,6 +126,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /authorization path. Pass to the next handler if path is not matched.
         StatelessAuthConfig config = StatelessAuthConfig.load();
+        try { Csrf.rejectQuery(exchange); }
+        catch (IllegalArgumentException e) { setExchangeStatus(exchange, LOGOUT_CSRF_INVALID); return; }
+
         if(logger.isDebugEnabled())
             logger.debug("exchange path = {} config path = {}", exchange.getRelativePath(), config.getAuthPath());
 
@@ -143,7 +145,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
                 return;
             }
-            String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
+            String csrf = Csrf.nonce();
             TokenRequest request = new AuthorizationCodeRequest();
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
@@ -187,61 +189,33 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 // verify the jwt without caring about expiration and compare csrf token
                 JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
-                // get csrf token from the header. Return error is it doesn't exist.
-                String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    // Check for csrf in Sec-WebSocket-Protocol header.
-                    // Detect WebSocket handshake by requiring both Sec-WebSocket-Key and
-                    // Sec-WebSocket-Version, which together uniquely identify a WebSocket
-                    // upgrade request. We do not check the Upgrade or Connection headers
-                    // because HTTP/2 strips hop-by-hop headers per RFC 9113 §8.2.2.
-                    String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
-                    String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
-                    boolean isWebSocketHandshake = secWebSocketKey != null && secWebSocketVersion != null;
-                    String protocolHeader = isWebSocketHandshake
-                            ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
-                            : null;
-                    if(protocolHeader != null) {
-                        String[] protocols = protocolHeader.split(",");
-                        for (String p : protocols) {
-                            String trimmed = p.trim();
-                            if (trimmed.startsWith(CSRF_PROTOCOL_PREFIX)) {
-                                headerCsrf = trimmed.substring(CSRF_PROTOCOL_PREFIX.length());
-                                break;
-                            }
-                        }
-                    }
-                }
-                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    Deque<String> csrfDeque = exchange.getQueryParameters().get(Constants.CSRF);
-                    if(csrfDeque != null) headerCsrf = csrfDeque.getFirst();
-                }
-                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    setExchangeStatus(exchange, CSRF_HEADER_MISSING);
-                    return;
-                }
+                String headerCsrf;
+                try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
+                catch (IllegalArgumentException e) { setExchangeStatus(exchange, CSRF_HEADER_MISSING); return; }
                 // verify csrf from jwt token in httpOnly cookie
                 if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
                     setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
-                if(!headerCsrf.equals(jwtCsrf)) {
-                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                if(!Csrf.equal(headerCsrf, jwtCsrf)) {
+                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, "[redacted]", "[redacted]");
                     return;
                 }
                 // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
                 // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
                 // per minute will make the session continue until the browser tab is closed.
                 if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
-                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
+                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config, jwtCsrf);
                 }
             } else {
                 // renew the token and set the cookies
-                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
+                if (exchange.getRequestCookie(REFRESH_TOKEN) != null) {
+                    // A refresh cookie alone cannot authenticate a CSRF value. Require re-login.
+                    setExchangeStatus(exchange, LOGOUT_CSRF_INVALID);
+                    return;
+                }
             }
 
-            if(logger.isDebugEnabled()) logger.debug("jwt = {}", jwt);
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
@@ -308,13 +282,23 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private boolean validateLogoutCsrf(HttpServerExchange exchange, StatelessAuthConfig config) {
         if(!hasOwnedSessionCookie(exchange)) return true;
 
-        String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-        Cookie cookie = exchange.getRequestCookie(Constants.CSRF);
-        boolean headerMissing = headerCsrf == null || headerCsrf.trim().isEmpty();
-        boolean cookieInvalid = cookie == null || cookie.getValue() == null
-                || !cookie.getValue().equals(headerCsrf);
-        if(!headerMissing && !cookieInvalid) return true;
-
+        String headerCsrf = null;
+        try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
+        catch (IllegalArgumentException ignored) { }
+        boolean headerMissing = headerCsrf == null;
+        boolean valid = false;
+        if (!headerMissing) {
+            try {
+                Cookie access = exchange.getRequestCookie(ACCESS_TOKEN);
+                Cookie csrf = exchange.getRequestCookie(Constants.CSRF);
+                if (access != null && csrf != null && Csrf.equal(headerCsrf, csrf.getValue())) {
+                    // Expiry relaxation is limited to cleanup of a signed, bound session.
+                    JwtClaims claims = jwtVerifier.verifyJwt(access.getValue(), true, true);
+                    valid = Csrf.equal(headerCsrf, claims.getStringClaimValue(Constants.CSRF));
+                }
+            } catch (Exception ignored) { /* Invalid/partial sessions fail closed without credential diagnostics. */ }
+        }
+        if (valid) return true;
         long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
         String failure = headerMissing ? "header_missing" : "cookie_invalid";
         logger.info("event=spa_auth_logout_csrf_would_reject runtime=stateless-auth endpoint=logout " +
@@ -334,12 +318,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         return false;
     }
 
-    private String renewToken(HttpServerExchange exchange, Cookie cookie, StatelessAuthConfig config) throws Exception {
+    private String renewToken(HttpServerExchange exchange, Cookie cookie, StatelessAuthConfig config, String verifiedCsrf) throws Exception {
         String jwt = null;
         if(cookie != null) {
             String refreshToken = cookie.getValue();
             if(refreshToken != null) {
-                RefreshTokenSingleFlight.RefreshResult result = RefreshTokenSingleFlight.renew(refreshToken, logger);
+                RefreshTokenSingleFlight.RefreshResult result = RefreshTokenSingleFlight.renew(refreshToken, verifiedCsrf, logger);
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
                     setCookies(exchange, response, result.getCsrf(), config);

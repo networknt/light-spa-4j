@@ -19,7 +19,8 @@ import java.util.List;
 class MsalAuthHandlerTest {
     private static Undertow server;
     private static URI baseUri;
-    private static final HttpClient CLIENT = HttpClient.newHttpClient();
+    private static String csrf() { return MsalAuthConfig.load().getSessionCsrf().issue("entra-token"); }
+    private static final HttpClient CLIENT = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
 
     @BeforeAll
     static void start() {
@@ -77,40 +78,44 @@ class MsalAuthHandlerTest {
 
     @Test
     void sessionRequiresDoubleSubmitCsrfAndInjectsAuthorization() throws Exception {
-        HttpResponse<String> missing = send("/api", "GET", "Cookie", "accessToken=entra-token; csrf=secret");
+        String csrf = csrf();
+        HttpResponse<String> missing = send("/api", "GET", "Cookie", "accessToken=entra-token; csrf=" + csrf);
         Assertions.assertEquals(401, missing.statusCode());
         Assertions.assertTrue(missing.body().contains("ERR10036"));
 
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/api"))
-                .header("Cookie", "accessToken=entra-token; csrf=secret")
-                .header("X-CSRF-TOKEN", "secret").GET().build();
+                .header("Cookie", "accessToken=entra-token; csrf=" + csrf)
+                .header("X-CSRF-TOKEN", csrf).GET().build();
         HttpResponse<String> valid = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
         Assertions.assertEquals(200, valid.statusCode());
         Assertions.assertEquals("Bearer entra-token", valid.body());
     }
 
     @Test
-    void websocketSubprotocolAndQueryCanSupplyCsrf() throws Exception {
+    void websocketSubprotocolWorksButQueryIsRejected() throws Exception {
+        String csrf = csrf();
         HttpRequest websocket = HttpRequest.newBuilder(baseUri.resolve("/api"))
-                .header("Cookie", "accessToken=entra-token; csrf=secret")
+                .header("Cookie", "accessToken=entra-token; csrf=" + csrf)
                 .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
                 .header("Sec-WebSocket-Version", "13")
-                .header("Sec-WebSocket-Protocol", "chat, csrf.secret").GET().build();
+                .header("Origin", "https://portal.test")
+                .header("Sec-WebSocket-Protocol", "chat, csrf." + csrf).GET().build();
         Assertions.assertEquals(200, CLIENT.send(websocket, HttpResponse.BodyHandlers.ofString()).statusCode());
-        Assertions.assertEquals(200, send("/api?csrf=secret", "GET", "Cookie",
-                "accessToken=entra-token; csrf=secret").statusCode());
+        Assertions.assertEquals(401, send("/api?csrf=secret", "GET", "Cookie",
+                "accessToken=entra-token; csrf=" + csrf).statusCode());
     }
 
     @Test
     void logoutEnforcesCsrfAndDeletesBothCookies() throws Exception {
+        String csrf = csrf();
         HttpResponse<String> rejected = send("/auth/ms/logout", "POST", "Cookie",
-                "accessToken=entra-token; csrf=secret");
+                "accessToken=entra-token; csrf=" + csrf);
         Assertions.assertEquals(401, rejected.statusCode());
         Assertions.assertTrue(rejected.body().contains("ERR10036"));
 
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/auth/ms/logout"))
-                .header("Cookie", "accessToken=entra-token; csrf=secret")
-                .header("X-CSRF-TOKEN", "secret")
+                .header("Cookie", "accessToken=entra-token; csrf=" + csrf)
+                .header("X-CSRF-TOKEN", csrf)
                 .POST(HttpRequest.BodyPublishers.noBody()).build();
         HttpResponse<String> response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
         Assertions.assertEquals(204, response.statusCode());
@@ -123,6 +128,49 @@ class MsalAuthHandlerTest {
     @Test
     void optionsFallsThroughForCors() throws Exception {
         Assertions.assertEquals(200, send("/auth/ms/login", "OPTIONS", null, null).statusCode());
+    }
+
+    @Test
+    void plantedCrossSessionAndTamperedValuesCannotAuthorizeRequestsOrLogout() throws Exception {
+        String otherSession = MsalAuthConfig.load().getSessionCsrf().issue("other-access-token");
+        String original = csrf();
+        for (String value : List.of("attacker-chosen", otherSession, original.substring(0, original.length() - 8) + "AAAAAAAA")) {
+            for (String path : List.of("/api", "/auth/ms/logout")) {
+                HttpRequest.Builder request = HttpRequest.newBuilder(baseUri.resolve(path))
+                        .header("Cookie", "accessToken=entra-token; csrf=" + value).header("X-CSRF-TOKEN", value);
+                request.method(path.equals("/api") ? "GET" : "POST", HttpRequest.BodyPublishers.noBody());
+                HttpResponse<String> response = CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
+                Assertions.assertEquals(401, response.statusCode());
+                Assertions.assertFalse(response.body().contains(value));
+                Assertions.assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+            }
+        }
+    }
+
+    @Test
+    void queryWithValidHeaderAndUntrustedWebsocketOriginsAreRejected() throws Exception {
+        String csrf = csrf();
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("/api?csrf=" + csrf))
+                .header("Cookie", "accessToken=entra-token; csrf=" + csrf).header("X-CSRF-TOKEN", csrf).GET().build();
+        Assertions.assertEquals(401, CLIENT.send(request, HttpResponse.BodyHandlers.ofString()).statusCode());
+        for (String origin : List.of("null", "https://evil.test", "")) {
+            var builder = HttpRequest.newBuilder(baseUri.resolve("/api"))
+                    .header("Cookie", "accessToken=entra-token; csrf=" + csrf)
+                    .header("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==").header("Sec-WebSocket-Version", "13")
+                    .header("Sec-WebSocket-Protocol", "chat, csrf." + csrf);
+            if (!origin.isEmpty()) builder.header("Origin", origin);
+            Assertions.assertEquals(401, CLIENT.send(builder.GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode());
+        }
+    }
+
+    @Test
+    void logoutRequiresAccessTokenBindingAndRemainsIdempotentWithoutSession() throws Exception {
+        String csrf = csrf();
+        var partial = HttpRequest.newBuilder(baseUri.resolve("/auth/ms/logout"))
+                .header("Cookie", "csrf=" + csrf).header("X-CSRF-TOKEN", csrf)
+                .POST(HttpRequest.BodyPublishers.noBody()).build();
+        Assertions.assertEquals(401, CLIENT.send(partial, HttpResponse.BodyHandlers.ofString()).statusCode());
+        Assertions.assertEquals(204, send("/auth/ms/logout", "POST", null, null).statusCode());
     }
 
     @Test

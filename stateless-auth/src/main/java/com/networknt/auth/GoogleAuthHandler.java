@@ -8,7 +8,7 @@ import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.monad.Result;
-import com.networknt.utility.UuidUtil;
+import com.networknt.auth.csrf.Csrf;
 import com.networknt.utility.Constants;
 import io.undertow.server.HttpServerExchange;
 import io.undertow.server.handlers.Cookie;
@@ -151,7 +151,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
 
     protected void issueSession(HttpServerExchange exchange, Map<String, Object> account, String state,
                                 StatelessAuthConfig config) throws Exception {
-        String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
+        String csrf = Csrf.nonce();
         TokenRequest request = new ClientAuthenticatedUserRequest((String) account.get("userType"),
                 (String) account.get("userId"), "user");
         request.setCsrf(csrf);

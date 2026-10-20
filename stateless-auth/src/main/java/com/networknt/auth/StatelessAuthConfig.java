@@ -1,6 +1,7 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.auth.csrf.Csrf;
 import com.networknt.config.schema.ConfigSchema;
 import com.networknt.config.schema.OutputFormat;
 import com.networknt.config.schema.BooleanField;
@@ -54,6 +55,11 @@ public class StatelessAuthConfig {
     private static final String GITHUB_CLIENT_SECRET = "githubClientSecret";
 
     private final Map<String, Object> mappedConfig;
+    @StringField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins",
+            description = "Exact comma-separated WebSocket Origins; empty disables cookie-authenticated WebSockets.", defaultValue = "")
+    private String websocketAllowedOrigins = "";
+    private java.util.Set<String> csrfOrigins = java.util.Set.of();
+    public java.util.Set<String> getWebsocketAllowedOrigins() { return csrfOrigins; }
     private static volatile StatelessAuthConfig instance;
 
     // --- Annotated Fields ---
@@ -109,10 +115,10 @@ public class StatelessAuthConfig {
     @BooleanField(
             configFieldName = LOGOUT_CSRF_ENFORCED,
             externalizedKeyName = LOGOUT_CSRF_ENFORCED,
-            description = "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
-            defaultValue = "false"
+            description = "Enforce session-bound CSRF validation for logout. False is insecure observation-only migration mode.",
+            defaultValue = "true"
     )
-    boolean logoutCsrfEnforced;
+    boolean logoutCsrfEnforced = true;
 
     @StringField(
             configFieldName = COOKIE_DOMAIN,
@@ -292,6 +298,7 @@ public class StatelessAuthConfig {
 
     // --- Private Config Loader ---
     private void setConfigData() {
+        csrfOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
         Object object = mappedConfig.get(ENABLED);
         if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);
 

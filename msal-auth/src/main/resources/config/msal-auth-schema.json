@@ -12,6 +12,20 @@
     "cookieSameSite"
   ],
   "properties": {
+        "websocketAllowedOrigins": {
+            "type": "string",
+            "description": "Exact comma-separated allowed WebSocket Origins. Empty denies cookie-authenticated WebSockets.",
+            "default": ""
+        },
+        "csrfSigningKeyId": {
+            "type": "string",
+            "description": "Active CSRF signing key identifier, required when enabled."
+        },
+        "csrfSigningKeys": {
+            "type": "string",
+            "description": "Secret CSV key ring: id=unpadded-Base64URL-key, at least 32 random bytes per key. Required when enabled.",
+            "writeOnly": true
+        },
     "enabled": {
       "type": "boolean",
       "default": true
@@ -26,7 +40,7 @@
     },
     "logoutCsrfEnforced": {
       "type": "boolean",
-      "default": false
+      "default": true
     },
     "cookieDomain": {
       "type": "string",
