@@ -1,13 +1,11 @@
 package com.networknt.auth;
 
 import com.networknt.config.JsonMapper;
-import com.networknt.exception.ExpiredTokenException;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
-import com.networknt.security.JwtVerifier;
+import com.networknt.config.Config;
 import com.networknt.security.SecurityConfig;
-import com.networknt.security.VerificationException;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.utility.UuidUtil;
@@ -23,6 +21,7 @@ import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.MalformedClaimException;
 import org.jose4j.jwt.consumer.InvalidJwtException;
+import org.jose4j.lang.UnresolvableKeyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +50,7 @@ public class MsalAuthHandler implements MiddlewareHandler {
 
     public MsalAuthHandler() {
         MsalAuthConfig config = MsalAuthConfig.load();
-        if (config.isEnabled()) ensureVerifierState();
+        if (config.isEnabled()) ensureVerifierState(config);
     }
 
     @Override
@@ -61,7 +60,7 @@ public class MsalAuthHandler implements MiddlewareHandler {
             Handler.next(exchange, next);
             return;
         }
-        ensureVerifierState();
+        ensureVerifierState(config);
         String path = exchange.getRelativePath();
         boolean login = path.equals(config.getLoginPath());
         boolean logout = path.equals(config.getLogoutPath());
@@ -135,29 +134,40 @@ public class MsalAuthHandler implements MiddlewareHandler {
     }
 
     private JwtClaims verifyMicrosoftToken(HttpServerExchange exchange, String token, MsalAuthConfig config) throws Exception {
-        VerifierState state = ensureVerifierState();
+        VerifierState state = ensureVerifierState(config);
         try {
             // Expiry is always enforced for this handler, independently of security-msal.ignoreJwtExpiry.
-            JwtClaims claims = state.verifier.verifyJwt(token, false, true, null,
-                    exchange.getRequestPath(), null);
+            JwtClaims claims = state.verifier.verify(token);
             config.getTokenPolicy().validate(claims, state.clockSkewSeconds);
             return claims;
-        } catch (ExpiredTokenException e) {
-            rejectToken(exchange, config, "expired", AUTH_TOKEN_EXPIRED, "AUTH_TOKEN_EXPIRED", "Microsoft access token has expired");
-            return null;
         } catch (MsalTokenPolicy.RejectedTokenException e) {
             rejectInvalidToken(exchange, config, e.category());
             return null;
-        } catch (InvalidJwtException | MalformedClaimException e) {
+        } catch (InvalidJwtException e) {
+            if (keyResolutionFailure(e)) {
+                rejectKeyLookup(exchange);
+            } else if (e.hasExpired()) {
+                rejectToken(exchange, config, "expired", AUTH_TOKEN_EXPIRED, "AUTH_TOKEN_EXPIRED", "Microsoft access token has expired");
+            } else {
+                rejectInvalidToken(exchange, config, "signature_or_claims");
+            }
+            return null;
+        } catch (MalformedClaimException e) {
             rejectInvalidToken(exchange, config, "signature_or_claims");
             return null;
-        } catch (VerificationException e) {
-            // The signing key could not be resolved (unknown kid or unreachable JWKS endpoint). That can be a
-            // transient server-side failure, so reject the request but keep the session cookies.
-            logger.warn("Microsoft token validation failed category=key_lookup");
-            rejectUnauthorized(exchange, INVALID_AUTH_TOKEN, "INVALID_AUTH_TOKEN", INVALID_TOKEN_DESCRIPTION);
-            return null;
+
         }
+    }
+
+    private static boolean keyResolutionFailure(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause())
+            if (cause instanceof UnresolvableKeyException) return true;
+        return false;
+    }
+
+    private void rejectKeyLookup(HttpServerExchange exchange) {
+        logger.warn("Microsoft token validation failed category=key_lookup");
+        rejectUnauthorized(exchange, INVALID_AUTH_TOKEN, "INVALID_AUTH_TOKEN", INVALID_TOKEN_DESCRIPTION);
     }
 
     private void rejectInvalidToken(HttpServerExchange exchange, MsalAuthConfig config, String category) {
@@ -234,24 +244,26 @@ public class MsalAuthHandler implements MiddlewareHandler {
         }
     }
 
-    private static VerifierState ensureVerifierState() {
+    private static VerifierState ensureVerifierState(MsalAuthConfig msalConfig) {
         VerifierState state = verifierState;
-        if (state != null) return state;
+        Map<String, Object> securitySource = Config.getInstance().getJsonMapConfig("security-msal");
+        if (state != null && (state.testOverride || (state.config == msalConfig && state.securitySource == securitySource))) return state;
         synchronized (MsalAuthHandler.class) {
             state = verifierState;
-            if (state == null) {
+            if (state == null || (!state.testOverride && (state.config != msalConfig || state.securitySource != securitySource))) {
                 SecurityConfig config = SecurityConfig.load("security-msal");
                 requireUncachedVerifier(config);
-                state = new VerifierState(new JwtVerifier(config), config.getClockSkewInSeconds());
+                state = new VerifierState(new MsalJwtVerifier(msalConfig.getJwksUri(), config.getClockSkewInSeconds()),
+                        config.getClockSkewInSeconds(), msalConfig, securitySource, false);
                 verifierState = state;
             }
             return state;
         }
     }
 
-    static void installVerifierForTest(JwtVerifier verifier) {
+    static void installVerifierForTest(MsalTokenVerifier verifier) {
         verifierState = verifier == null ? null : new VerifierState(verifier,
-                SecurityConfig.load("security-msal").getClockSkewInSeconds());
+                SecurityConfig.load("security-msal").getClockSkewInSeconds(), null, null, true);
     }
 
     static void requireUncachedVerifier(SecurityConfig config) {
@@ -260,12 +272,19 @@ public class MsalAuthHandler implements MiddlewareHandler {
     }
 
     private static final class VerifierState {
-        private final JwtVerifier verifier;
+        private final MsalTokenVerifier verifier;
         private final int clockSkewSeconds;
+        private final MsalAuthConfig config;
+        private final Map<String, Object> securitySource;
+        private final boolean testOverride;
 
-        private VerifierState(JwtVerifier verifier, int clockSkewSeconds) {
+        private VerifierState(MsalTokenVerifier verifier, int clockSkewSeconds, MsalAuthConfig config,
+                              Map<String, Object> securitySource, boolean testOverride) {
             this.verifier = verifier;
             this.clockSkewSeconds = clockSkewSeconds;
+            this.config = config;
+            this.securitySource = securitySource;
+            this.testOverride = testOverride;
         }
     }
 

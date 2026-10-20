@@ -1,3 +1,4 @@
+jwksUri: ""
 # Direct MSAL BFF authentication without light-oauth token exchange.
 enabled: true
 tenantId: ""

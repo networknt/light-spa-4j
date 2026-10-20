@@ -1,3 +1,4 @@
+jwksUri: "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/discovery/v2.0/keys"
 enabled: true
 tenantId: "11111111-1111-1111-1111-111111111111"
 issuer: "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"

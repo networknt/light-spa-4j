@@ -11,6 +11,7 @@ import com.networknt.server.ModuleRegistry;
 import java.util.Map;
 import java.util.List;
 import java.util.Arrays;
+import java.net.URI;
 
 /** Configuration for the direct MSAL BFF authentication handler. */
 public class MsalAuthConfig {
@@ -36,6 +37,9 @@ public class MsalAuthConfig {
     @StringField(configFieldName = "audience", externalizedKeyName = "audience",
             description = "Exact audience of this API, not Microsoft Graph or the SPA client.")
     private String audience;
+    @StringField(configFieldName = "jwksUri", externalizedKeyName = "jwksUri",
+            description = "Required trusted HTTPS Entra JWKS endpoint. Independent of other providers and client.yml routing.")
+    private String jwksUri;
     @ArrayField(configFieldName = "requiredScopes", externalizedKeyName = "requiredScopes", items = String.class,
             description = "Nonempty list of delegated API scopes. Every listed scope is required.")
     private List<String> requiredScopes = List.of();
@@ -126,9 +130,21 @@ public class MsalAuthConfig {
         tenantId = stringSetting("tenantId");
         issuer = stringSetting("issuer");
         audience = stringSetting("audience");
+        jwksUri = stringSetting("jwksUri");
+        validateJwksUri(jwksUri);
         requiredScopes = stringListSetting("requiredScopes");
         allowedClientIds = stringListSetting("allowedClientIds");
         tokenPolicy = new MsalTokenPolicy(tenantId, issuer, audience, requiredScopes, allowedClientIds);
+    }
+
+    static void validateJwksUri(String value) {
+        try {
+            URI uri = URI.create(value);
+            if (!value.equals(value.trim()) || !"https".equals(uri.getScheme()) || uri.getHost() == null
+                    || uri.getRawUserInfo() != null || uri.getFragment() != null) throw new IllegalArgumentException();
+        } catch (IllegalArgumentException | NullPointerException e) {
+            throw new IllegalArgumentException("msal-auth.jwksUri must be a trusted HTTPS JWKS endpoint");
+        }
     }
 
     private String stringSetting(String name) {
@@ -161,6 +177,7 @@ public class MsalAuthConfig {
     }
 
     MsalTokenPolicy getTokenPolicy() { return tokenPolicy; }
+    String getJwksUri() { return jwksUri; }
     public boolean isEnabled() { return enabled; }
     public String getLoginPath() { return loginPath; }
     public String getLogoutPath() { return logoutPath; }

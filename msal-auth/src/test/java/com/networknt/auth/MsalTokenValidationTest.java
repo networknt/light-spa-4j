@@ -1,9 +1,6 @@
 package com.networknt.auth;
 
-import com.networknt.security.JwtVerifier;
-import com.networknt.exception.ExpiredTokenException;
 import com.networknt.security.SecurityConfig;
-import com.networknt.security.VerificationException;
 import io.undertow.Undertow;
 import io.undertow.util.Headers;
 import org.jose4j.jwk.RsaJsonWebKey;
@@ -32,7 +29,7 @@ import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Local signatures and the real JwtVerifier; only key lookup is replaced to avoid external Entra calls. */
+/** Local signatures and the isolated MSAL verifier; only key lookup is replaced to avoid external Entra calls. */
 class MsalTokenValidationTest {
     static final String TENANT = "11111111-1111-1111-1111-111111111111";
     static final String AUDIENCE = "22222222-2222-2222-2222-222222222222";
@@ -42,7 +39,7 @@ class MsalTokenValidationTest {
     private static RsaJsonWebKey key;
     private static Undertow server;
     private static URI base;
-    private static JwtVerifier realVerifier;
+    private static MsalTokenVerifier realVerifier;
 
     @BeforeAll
     static void start() throws Exception {
@@ -50,15 +47,7 @@ class MsalTokenValidationTest {
         key.setKeyId("local-msal-test");
         SecurityConfig security = SecurityConfig.load("security-msal");
         MsalAuthHandler.requireUncachedVerifier(security);
-        JwtVerifier verifier = new JwtVerifier(security) {
-            @Override
-            public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean isToken,
-                                       String pathPrefix, String requestPath, List<String> jwkServiceIds)
-                    throws InvalidJwtException, ExpiredTokenException {
-                return super.verifyJwt(jwt, ignoreExpiry, isToken, pathPrefix, requestPath, jwkServiceIds,
-                        (kid, context) -> (jws, nesting) -> key.getPublicKey());
-            }
-        };
+        MsalTokenVerifier verifier = new MsalJwtVerifier((jws, nesting) -> key.getPublicKey(), security.getClockSkewInSeconds());
         realVerifier = verifier;
         MsalAuthHandler.installVerifierForTest(verifier);
         MsalAuthHandler handler = new MsalAuthHandler();
@@ -193,6 +182,19 @@ class MsalTokenValidationTest {
     }
 
     @Test
+    void rejectsHmacKeyConfusionAndUnsignedTokens() throws Exception {
+        JsonWebSignature hmac = new JsonWebSignature();
+        hmac.setAlgorithmHeaderValue(AlgorithmIdentifiers.HMAC_SHA256);
+        hmac.setKey(new javax.crypto.spec.SecretKeySpec(key.getPublicKey().getEncoded(), "HmacSHA256"));
+        hmac.setPayload(validClaims().toJson());
+        assertRejected(hmac.getCompactSerialization());
+        var encoder = java.util.Base64.getUrlEncoder().withoutPadding();
+        String unsigned = encoder.encodeToString("{\"alg\":\"none\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                + "." + encoder.encodeToString(validClaims().toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8)) + ".";
+        assertRejected(unsigned);
+    }
+
+    @Test
     void acceptsExplicitV1PolicyAndRejectsV2ClientClaimSubstitution() throws Exception {
         String issuer = "https://sts.windows.net/" + TENANT + "/";
         MsalTokenPolicy policy = new MsalTokenPolicy(TENANT, issuer, "api://example",
@@ -234,12 +236,7 @@ class MsalTokenValidationTest {
 
     @Test
     void resolverProgrammingErrorRemainsServerFailureAndKeepsCookies() throws Exception {
-        MsalAuthHandler.installVerifierForTest(new JwtVerifier(SecurityConfig.load("security-msal")) {
-            @Override public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean isToken,
-                    String pathPrefix, String requestPath, List<String> services) {
-                throw new NumberFormatException("resolver configuration is invalid");
-            }
-        });
+        MsalAuthHandler.installVerifierForTest(jwt -> { throw new NumberFormatException("resolver configuration is invalid"); });
         try {
             HttpResponse<String> response = request(sign(validClaims(), key), true);
             assertEquals(500, response.statusCode());
@@ -251,11 +248,10 @@ class MsalTokenValidationTest {
 
     @Test
     void keyLookupFailureRejectsRequestButKeepsSessionCookies() throws Exception {
-        MsalAuthHandler.installVerifierForTest(new JwtVerifier(SecurityConfig.load("security-msal")) {
-            @Override public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean isToken,
-                    String pathPrefix, String requestPath, List<String> services) {
-                throw new VerificationException("no JWK for kid: local-msal-test");
-            }
+        MsalAuthHandler.installVerifierForTest(jwt -> {
+            throw new InvalidJwtException("key lookup", new org.jose4j.jwt.consumer.ErrorCodeValidator.Error(
+                    org.jose4j.jwt.consumer.ErrorCodes.MISCELLANEOUS, "key lookup"),
+                    new org.jose4j.lang.UnresolvableKeyException("local key lookup unavailable"), null);
         });
         try {
             for (boolean cookie : new boolean[]{true, false}) {

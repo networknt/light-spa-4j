@@ -19,10 +19,11 @@ any Microsoft-signed token. Disabled handlers do not require a policy.
    **access token** to the login endpoint. Do not send `idToken`.
 3. Set the policy below using your tenant, API, and authorized SPA client IDs.
    Obtain the exact issuer from the tenant-specific OpenID metadata document.
-   Keep the signing-key configuration in `security-msal`/`client.yml` pointed
-   at the matching trusted Entra authority. Never derive a key URL from token
-   claims.
-4. Explicitly disable the shared JWT cache and restart the gateway. Existing
+   Set `jwksUri` to the trusted metadata document's `jwks_uri` (an HTTPS URL).
+   The instance-owned MSAL resolver fetches only this endpoint; it never consults
+   shared `JwtVerifier` certificates, JWK/token caches, or `client.yml` provider
+   routing. Never derive a key URL from token claims.
+4. Set `security-msal.enableJwtCache: false` and restart the gateway. Existing
    cookies must satisfy the new policy on their next request; users with
    incompatible tokens must sign in again. Rejected cookie authentication clears
    both cookies; CSRF failures, signing-key lookup failures (unknown `kid` or an
@@ -35,6 +36,7 @@ enabled: true
 tenantId: "11111111-1111-1111-1111-111111111111"
 issuer: "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/v2.0"
 audience: "22222222-2222-2222-2222-222222222222" # API application ID
+jwksUri: "https://login.microsoftonline.com/11111111-1111-1111-1111-111111111111/discovery/v2.0/keys"
 requiredScopes:
   - access_as_user
 allowedClientIds:
@@ -49,7 +51,7 @@ cookieSameSite: Lax
 sessionTimeout: 3600
 ```
 
-In `security-msal.yml`, retain the existing signing-key configuration and set:
+In `security-msal.yml`, keep the desired clock skew and set:
 
 ```yaml
 enableJwtCache: false
@@ -63,11 +65,20 @@ The shipped `.yml` includes all required placeholders; the `.yaml` template and
 JSON schema include the same policy fields. Empty defaults fail enabled-policy
 validation and are permitted when the handler is disabled.
 
-The verifier's shared cache can return claims verified under another trust
-context and skips audience validation on cache hits. This handler rejects
-cache-enabled configuration until the shared cache is safe for multiple
-verification policies. Repeated requests therefore reverify signatures as well
-as claims. `bootstrapFromKeyService` does not replace the application policy.
+MSAL uses an instance-owned jose4j verifier and JWKS cache. It does not construct
+or consult the shared `JwtVerifier`, so another provider cannot replace its
+configuration/certificates or satisfy resolution through a colliding cached `kid`.
+There is no JWT claims cache; `enableJwtCache: true` remains unsupported. The
+private JWKS cache honors endpoint caching and allows key rotation. Unknown-kid
+refreshes are rate limited for 30 seconds. A changed MSAL policy or
+`security-msal` map snapshot creates a fresh verifier and key cache.
+
+Signatures must use RS256. HTTPS uses the JVM trust store and hostname verification,
+with five-second connect/read timeouts and no transport retries. Deployments using
+private certificate authorities must configure their JVM trust store. Shared
+client registry/proxy/TLS configuration and `security-msal.jwt.certificate` are not
+used by this isolated signing path. `security-msal` still supplies clock skew and
+the unsupported JWT-cache guard; `ignoreJwtExpiry` cannot disable expiry checks.
 
 ## Policy semantics
 
@@ -89,7 +100,7 @@ as claims. `bootstrapFromKeyService` does not replace the application policy.
 - A nonempty subject is required. Tokens declaring `idtyp: app` are rejected.
   The `typ: JWT` header does not distinguish ID tokens from access tokens;
   the audience and delegated scope policy establish the token's purpose.
-- `JwtVerifier` enforces expiration with the configured
+- The isolated verifier enforces expiration with the configured
   `security-msal.jwt.clockSkewInSeconds` allowance. The application policy
   applies that same allowance to not-before; it does not duplicate expiry checking.
 - Invalid tokens return `401 / ERR10000 / INVALID_AUTH_TOKEN`; expired tokens
@@ -110,8 +121,11 @@ mvn -pl msal-auth -am test
 mvn test
 ```
 
-Regression tests sign local RSA tokens and execute the real JWT verifier with a
-local key resolver, then exercise HTTP login and cookie requests. They require
+Regression tests sign local RSA tokens and exercise HTTP login and cookie requests.
+Signing-isolation tests serve HTTPS JWKS endpoints with colliding key IDs, run the
+production factory in a fresh JVM with no injected verifier, and initialize a
+legacy verifier in both orders. They also test endpoint-owned caches and key
+rotation. The committed certificate/private key are synthetic test fixtures only. They require
 no Entra credentials or network calls to Microsoft. Local tests do not establish
 deployment-specific Entra integration.
 

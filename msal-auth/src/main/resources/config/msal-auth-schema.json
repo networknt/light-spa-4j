@@ -89,6 +89,9 @@
           "type": "string"
         }
       ]
+    },
+    "jwksUri": {
+      "type": "string"
     }
   },
   "allOf": [
@@ -109,7 +112,8 @@
           "issuer",
           "audience",
           "requiredScopes",
-          "allowedClientIds"
+          "allowedClientIds",
+          "jwksUri"
         ],
         "properties": {
           "tenantId": {
@@ -152,6 +156,11 @@
                 "minLength": 1
               }
             ]
+          },
+          "jwksUri": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^https://"
           }
         }
       }

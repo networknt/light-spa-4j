@@ -30,7 +30,7 @@ class MsalProductionConfigTest {
         Files.copy(Path.of("src/main/resources/config/msal-auth.yml"), directory.resolve("msal-deployed.yml"));
         for (Object scopes : List.of(List.of("access_as_user"), "[\"access_as_user\"]", "access_as_user,extra_scope", "ENV")) {
             Map<String, Object> values = new HashMap<>(Map.of("msal-auth.tenantId", TENANT,
-                    "msal-auth.issuer", ISSUER, "msal-auth.audience", AUDIENCE,
+                    "msal-auth.jwksUri", "https://login.microsoftonline.com/keys", "msal-auth.issuer", ISSUER, "msal-auth.audience", AUDIENCE,
                     "msal-auth.requiredScopes", scopes, "msal-auth.allowedClientIds", CLIENT));
             boolean environment = "ENV".equals(scopes);
             if (environment) {
@@ -74,7 +74,7 @@ class MsalProductionConfigTest {
 
     private static Map<String, Object> validMap() {
         return new HashMap<>(Map.of("enabled", true, "tenantId", TENANT, "issuer", ISSUER,
-                "audience", AUDIENCE, "requiredScopes", List.of("access_as_user"), "allowedClientIds", List.of(CLIENT)));
+                "audience", AUDIENCE, "jwksUri", "https://login.microsoftonline.com/keys", "requiredScopes", List.of("access_as_user"), "allowedClientIds", List.of(CLIENT)));
     }
 
     @Test
@@ -103,5 +103,13 @@ class MsalProductionConfigTest {
         var error = assertThrows(MsalTokenPolicy.RejectedTokenException.class,
                 () -> MsalTokenPolicy.validateNotBefore(claims, 1000, 60));
         assertEquals("not_before", error.category());
+    }
+
+    @Test
+    void signingEndpointMustBeExplicitTrustedHttps() {
+        for (String uri : List.of("", "http://localhost/keys", "https://user:password@example.com/keys", "https://example.com/keys#fragment"))
+            assertThrows(IllegalArgumentException.class, () -> MsalAuthConfig.validateJwksUri(uri));
+        assertThrows(IllegalArgumentException.class, () -> MsalAuthConfig.validateJwksUri(null));
+        assertDoesNotThrow(() -> MsalAuthConfig.validateJwksUri("https://login.microsoftonline.com/keys?appid=application"));
     }
 }

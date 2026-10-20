@@ -76,8 +76,8 @@ final class MsalTokenPolicy {
         if ("app".equals(claims.getStringClaimValue("idtyp"))
                 || claims.getSubject() == null || claims.getSubject().isBlank())
             throw new RejectedTokenException("token_purpose");
-        // Expiration is enforced by JwtVerifier. Its large internal time allowance
-        // does not enforce nbf adequately, so apply the configured allowance here.
+        // The isolated verifier enforces lifetime. Keep the same nbf allowance at
+        // the application-policy boundary as well.
         validateNotBefore(claims, NumericDate.now().getValue(), clockSkewSeconds);
     }
 

@@ -1,3 +1,4 @@
+jwksUri: ${msal-auth.jwksUri:}
 # Direct MSAL BFF authentication without light-oauth token exchange.
 enabled: ${msal-auth.enabled:true}
 tenantId: ${msal-auth.tenantId:}
