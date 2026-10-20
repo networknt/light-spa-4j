@@ -87,11 +87,15 @@ public class StatelessAuthHandlerTest {
     private static final String SERVER_TRUST_STORE = "server.truststore";
     private static final char[] STORE_PASSWORD = "password".toCharArray();
 
+    private static final javax.net.ssl.SSLSocketFactory PREVIOUS_HTTPS_FACTORY = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory();
+    @org.junit.jupiter.api.AfterAll
+    static void restoreHttpsTrust() { javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(PREVIOUS_HTTPS_FACTORY); }
+
     private static volatile boolean jwksUnavailable;
+    private static volatile boolean invalidIssuedPolicy;
+    private static final java.util.concurrent.atomic.AtomicInteger tokenRequests = new java.util.concurrent.atomic.AtomicInteger();
     private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
 
-    @org.junit.jupiter.api.BeforeEach
-    public void resetLogoutKeySnapshot() { LogoutBinding.clearKeySnapshot(); }
 
     private static volatile CountDownLatch slowRefreshEntered;
     private static volatile CountDownLatch slowRefreshRelease;
@@ -99,6 +103,8 @@ public class StatelessAuthHandlerTest {
     @BeforeAll
     public static void setUp() throws IOException {
         sslContext = createSSLContext(loadKeyStore(SERVER_KEY_STORE), loadKeyStore(SERVER_TRUST_STORE), false);
+        javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(
+                createSSLContext(loadKeyStore(SERVER_KEY_STORE), loadKeyStore(SERVER_KEY_STORE), true).getSocketFactory());
 
         if(authServer == null) {
             logger.info("starting server");
@@ -258,7 +264,10 @@ public class StatelessAuthHandlerTest {
         // Create a token with 600 second expiry (matches the JWT exp claim).
         try {
             Map<String, Object> map = new HashMap<>();
-            String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
+            tokenRequests.incrementAndGet();
+            JwtClaims issued = getTestClaims(csrfValue != null ? csrfValue : csrfToken);
+            if (invalidIssuedPolicy) issued.setAudience("wrong-provider-audience");
+            String token = getJwt(issued);
             map.put("access_token", token);
             map.put("token_type", "Bearer");
             map.put("expires_in", 600);
@@ -282,6 +291,61 @@ public class StatelessAuthHandlerTest {
                 exchange.endExchange();
             }
         };
+    }
+
+    @Test
+    public void testWrongSessionIssuerAndAudienceNeverReachDownstream() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        for (String field : new String[]{"iss", "aud"}) {
+            JwtClaims claims = getTestClaims(csrf);
+            claims.setClaim(field, "wrong-" + field);
+            ClientResponse response = sendRequest(Methods.POST, "/api", "accessToken=" + getJwt(claims) + "; csrf=" + csrf, csrf, "https://portal.test");
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+            Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        }
+    }
+
+    @Test
+    public void testWrongProviderTokenCannotEstablishRenewOrRecoverSession() throws Exception {
+        invalidIssuedPolicy = true;
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        try {
+            for (boolean existing : new boolean[]{false, true}) {
+                String cookies = "refreshToken=invalid-issued-policy-" + java.util.UUID.randomUUID() + "; csrf=" + csrf
+                        + (existing ? "; accessToken=" + getJwt(30, csrf) : "");
+                ClientResponse response = sendRequest(Methods.POST, "/api", cookies, existing ? csrf : null, "https://portal.test");
+                Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+                Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+                Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+            }
+            ClientResponse callback = sendRequest(Methods.GET, "/authorization?code=bad-issued-policy&state=test", null, null);
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, callback.getResponseCode());
+            Assertions.assertNull(callback.getResponseHeaders().get(Headers.SET_COOKIE));
+        } finally { invalidIssuedPolicy = false; }
+    }
+
+    @Test
+    public void testPolicyReloadAndFailedSnapshots() throws Exception {
+        java.util.Map<String, Object> original = Config.getInstance().getJsonMapConfig("statelessAuth");
+        var first = StatelessAuthConfig.load();
+        try {
+            java.util.Map<String, Object> invalid = new java.util.HashMap<>(original);
+            invalid.remove("tokenTrust");
+            Config.getInstance().putInConfigCache("statelessAuth", invalid);
+            RuntimeException failure = Assertions.assertThrows(IllegalArgumentException.class, StatelessAuthConfig::load);
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalArgumentException.class, StatelessAuthConfig::load));
+            java.util.Map<String, Object> disabled = new java.util.HashMap<>(invalid);
+            disabled.put("enabled", false);
+            Config.getInstance().putInConfigCache("statelessAuth", disabled);
+            Assertions.assertFalse(StatelessAuthConfig.load().isEnabled());
+            java.util.Map<String, Object> replacement = new java.util.HashMap<>(original);
+            Config.getInstance().putInConfigCache("statelessAuth", replacement);
+            Assertions.assertNotSame(first.getTokenTrust(), StatelessAuthConfig.load().getTokenTrust(), "replacement owns a fresh signing resolver/cache");
+        } finally {
+            Config.getInstance().putInConfigCache("statelessAuth", original);
+            StatelessAuthConfig.load();
+        }
     }
 
     @Test
@@ -415,7 +479,7 @@ public class StatelessAuthHandlerTest {
         try {
             long before = StatelessAuthHandler.logoutCsrfWouldRejectCount();
             String expired = getJwt(-600, "matching");
-            Assertions.assertEquals("matching", StatelessAuthHandler.jwtVerifier.verifyJwt(expired, true, true).getStringClaimValue("csrf"));
+            Assertions.assertEquals("matching", StatelessAuthConfig.load().getTokenTrust().verify(expired, true).getStringClaimValue("csrf"));
             ClientResponse response = sendRequest(Methods.POST, "/logout",
                     "accessToken=" + expired + "; csrf=matching", "matching");
 
@@ -731,41 +795,9 @@ public class StatelessAuthHandlerTest {
         return token;
     }
 
-    @Test
-    public void testConfirmationSnapshotReusedAcrossDifferentMissingKeyIds() throws Exception {
-        String csrf = com.networknt.auth.csrf.Csrf.nonce();
-        String first = retiredKeyJwt(csrf);
-        int before = keyRequests.get();
-        Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/logout",
-                "accessToken=" + first + "; csrf=" + csrf, null, "https://portal.test").getResponseCode());
-        Assertions.assertEquals(2, keyRequests.get() - before, "initial verifier lookup plus one confirmation");
-        String[] parts = first.split("\\.");
-        String header = new String(java.util.Base64.getUrlDecoder().decode(parts[0]), java.nio.charset.StandardCharsets.UTF_8)
-                .replace("retired-key", "different-missing-key");
-        String second = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(header.getBytes(java.nio.charset.StandardCharsets.UTF_8))
-                + "." + parts[1] + "." + parts[2];
-        before = keyRequests.get();
-        Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/logout",
-                "accessToken=" + second + "; csrf=" + csrf, null, "https://portal.test").getResponseCode());
-        Assertions.assertEquals(1, keyRequests.get() - before, "only the dependency verifier lookup; no second confirmation");
-        Thread.sleep(5100); // A retired-key decision must not outlive the bounded snapshot.
-        before = keyRequests.get();
-        Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/logout",
-                "accessToken=" + second + "; csrf=" + csrf, null, "https://portal.test").getResponseCode());
-        Assertions.assertEquals(2, keyRequests.get() - before, "confirmation is fetched again after expiry");
-    }
 
-    @Test
-    public void testUnavailableJwksPreservesLogoutCookies() throws Exception {
-        String csrf = com.networknt.auth.csrf.Csrf.nonce();
-        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
-        jwksUnavailable = true;
-        try {
-            ClientResponse response = sendRequest(Methods.POST, "/logout", cookies, null, "https://portal.test");
-            Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
-            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
-        } finally { jwksUnavailable = false; LogoutBinding.clearKeySnapshot(); }
-    }
+
+
 
     @Test
     public void testTemporaryRecoveryAndRenewalFailuresPreserveCookies() throws Exception {

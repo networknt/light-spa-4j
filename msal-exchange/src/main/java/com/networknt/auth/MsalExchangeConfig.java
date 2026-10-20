@@ -1,6 +1,8 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.config.schema.MapField;
+import com.networknt.auth.trust.JwtTrust;
 import com.networknt.config.schema.ArrayField;
 import com.networknt.auth.csrf.Csrf;
 import com.networknt.config.schema.ConfigSchema; // REQUIRED IMPORT
@@ -48,6 +50,27 @@ public class MsalExchangeConfig {
 
     // --- Annotated Fields ---
     // --- Annotated Fields ---
+    @MapField(configFieldName = "internalTokenTrust", externalizedKeyName = "internalTokenTrust", valueType = Object.class,
+            description = "Isolated INTERNAL_ACCESS signing endpoint and exact issuer/audience policy. Required when enabled and used.")
+    private Map<String, Object> internalTokenTrust;
+    private JwtTrust internalTokenTrustVerifier;
+    JwtTrust getInternalTokenTrust() { return internalTokenTrustVerifier; }
+    @MapField(configFieldName = "subjectTokenTrust", externalizedKeyName = "subjectTokenTrust", valueType = Object.class,
+            description = "Isolated MICROSOFT_ID signing endpoint and exact issuer/audience policy. Required when enabled and used.")
+    private Map<String, Object> subjectTokenTrust;
+    private JwtTrust subjectTokenTrustVerifier;
+    JwtTrust getSubjectTokenTrust() { return subjectTokenTrustVerifier; }
+    @MapField(configFieldName = "apiTokenTrust", externalizedKeyName = "apiTokenTrust", valueType = Object.class,
+            description = "Isolated MICROSOFT_ACCESS signing endpoint and exact issuer/audience policy. Required when enabled and used.")
+    private Map<String, Object> apiTokenTrust;
+    private JwtTrust apiTokenTrustVerifier;
+    synchronized JwtTrust getApiTokenTrust() {
+        if (apiTokenTrustVerifier == null) {
+            apiTokenTrust = JwtTrust.configuration(mappedConfig.get("apiTokenTrust"));
+            apiTokenTrustVerifier = JwtTrust.load(apiTokenTrust, JwtTrust.Kind.MICROSOFT_ACCESS);
+        }
+        return apiTokenTrustVerifier;
+    }
     private final Map<String, Object> mappedConfig;
     @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
             description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
@@ -58,6 +81,8 @@ public class MsalExchangeConfig {
     private Set<String> browserAllowedOrigins = Set.of();
     public Set<String> getBrowserAllowedOrigins() { return browserAllowedOrigins; }
     private static volatile MsalExchangeConfig instance;
+    private record LoadFailure(Map<String, Object> source, RuntimeException error) { }
+    private static volatile LoadFailure loadFailure;
 
     @BooleanField(
             configFieldName = ENABLED,
@@ -195,6 +220,8 @@ public class MsalExchangeConfig {
     public static MsalExchangeConfig load(String configName) {
         if (CONFIG_NAME.equals(configName)) {
             Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            LoadFailure failure = loadFailure;
+            if (failure != null && failure.source == mappedConfig) throw failure.error;
             if (instance != null && instance.getMappedConfig() == mappedConfig) {
                 return instance;
             }
@@ -203,7 +230,11 @@ public class MsalExchangeConfig {
                 if (instance != null && instance.getMappedConfig() == mappedConfig) {
                     return instance;
                 }
-                instance = new MsalExchangeConfig(configName);
+                LoadFailure failed = loadFailure;
+                if (failed != null && failed.source == mappedConfig) throw failed.error;
+                try { instance = new MsalExchangeConfig(configName); }
+                catch (RuntimeException error) { loadFailure = new LoadFailure(mappedConfig, error); throw error; }
+                loadFailure = null;
                 ModuleRegistry.registerModule(CONFIG_NAME, MsalExchangeConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
                 return instance;
             }
@@ -214,10 +245,6 @@ public class MsalExchangeConfig {
 
 
     private void setConfigData() {
-        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
-        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
-        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
-        browserAllowedOrigins = Set.copyOf(browserOrigins);
         // Load fields using Config utilities, consistent with the framework's internal loading
         Object object = mappedConfig.get(ENABLED);
         if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);
@@ -259,6 +286,19 @@ public class MsalExchangeConfig {
         if (object != null) msalAccessTokenCookie = ((String) object).trim();
 
         validateTokenPlacement();
+        if (!enabled) return;
+        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
+        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
+        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
+        browserAllowedOrigins = Set.copyOf(browserOrigins);
+        internalTokenTrust = JwtTrust.configuration(mappedConfig.get("internalTokenTrust"));
+        internalTokenTrustVerifier = JwtTrust.load(internalTokenTrust, JwtTrust.Kind.INTERNAL_ACCESS);
+        subjectTokenTrust = JwtTrust.configuration(mappedConfig.get("subjectTokenTrust"));
+        subjectTokenTrustVerifier = JwtTrust.load(subjectTokenTrust, JwtTrust.Kind.MICROSOFT_ID);
+        if (isAzureMsalAuthorization()) {
+        apiTokenTrust = JwtTrust.configuration(mappedConfig.get("apiTokenTrust"));
+        apiTokenTrustVerifier = JwtTrust.load(apiTokenTrust, JwtTrust.Kind.MICROSOFT_ACCESS);
+        }
     }
 
     private void validateTokenPlacement() {

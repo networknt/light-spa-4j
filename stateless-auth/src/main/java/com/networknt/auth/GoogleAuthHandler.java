@@ -56,7 +56,11 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
         String currentUser = null;
         if (link) {
             try { currentUser = currentUser(exchange); }
-            catch (Exception exception) { reject(exchange, 401, "PORTAL_LOGIN_REQUIRED"); return; }
+            catch (Exception exception) {
+                if (com.networknt.auth.trust.JwtTrust.unavailable(exception)) reject(exchange, 503, "SPA_SESSION_TEMPORARY_FAILURE");
+                else reject(exchange, 401, "PORTAL_LOGIN_REQUIRED");
+                return;
+            }
         }
         boolean challengeRequest = "1".equals(exchange.getQueryParameters().getOrDefault("challenge", new ArrayDeque<>()).peekFirst());
         if (Methods.GET.equals(exchange.getRequestMethod()) || challengeRequest) {
@@ -145,7 +149,7 @@ public class GoogleAuthHandler extends StatelessAuthHandler implements Middlewar
     protected String currentUser(HttpServerExchange exchange) throws Exception {
         Cookie cookie = exchange.getRequestCookie("accessToken");
         if (cookie == null) throw new IllegalArgumentException("No session");
-        JwtClaims claims = jwtVerifier.verifyJwt(cookie.getValue(), false, true);
+        JwtClaims claims = StatelessAuthConfig.load().getTokenTrust().verify(cookie.getValue(), false);
         return UUID.fromString(claims.getStringClaimValue(Constants.UID)).toString();
     }
 

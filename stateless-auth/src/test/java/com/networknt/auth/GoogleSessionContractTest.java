@@ -29,11 +29,22 @@ class GoogleSessionContractTest {
     private Map<String, Object> gis;
     private Object oldOrigin;
     private StatelessAuthConfig auth;
+    private Map<String, Object> authSource;
+    private SSLSocketFactory previousHttpsFactory;
     private String oldRedirect, oldDeny;
     private boolean invalidToken;
     private final AtomicReference<Map<String, String>> form = new AtomicReference<>();
     private final AtomicReference<Map<String, Object>> identity = new AtomicReference<>();
     @BeforeEach void start() throws Exception {
+        previousHttpsFactory = HttpsURLConnection.getDefaultSSLSocketFactory();
+        KeyStore anchors = KeyStore.getInstance("JKS");
+        try (var stream = Config.getInstance().getInputStreamFromFile("server.keystore")) { anchors.load(stream, "password".toCharArray()); }
+        TrustManagerFactory tm = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()); tm.init(anchors);
+        SSLContext clientTls = SSLContext.getInstance("TLS"); clientTls.init(null, tm.getTrustManagers(), null);
+        HttpsURLConnection.setDefaultSSLSocketFactory(clientTls.getSocketFactory());
+        authSource = Config.getInstance().getJsonMapConfig("statelessAuth");
+        // Each test owns a new signing key at this endpoint, so install a new trust snapshot too.
+        Config.getInstance().putInConfigCache("statelessAuth", new HashMap<>(authSource));
         key = RsaJwkGenerator.generateJwk(2048); key.setKeyId(UUID.randomUUID().toString());
         oauth = Undertow.builder().addHttpsListener(5882, "localhost", tls()).setHandler(this::oauth).build(); oauth.start();
         gis = Config.getInstance().getJsonMapConfig("google-sign-in");
@@ -54,6 +65,8 @@ class GoogleSessionContractTest {
         if (gateway != null) gateway.stop(); if (oauth != null) oauth.stop();
         if (gis != null) { if (oldOrigin == null) gis.remove("allowedOrigin"); else gis.put("allowedOrigin", oldOrigin); }
         if (auth != null) { auth.setRedirectUri(oldRedirect); auth.setDenyUri(oldDeny); }
+        if (authSource != null) Config.getInstance().putInConfigCache("statelessAuth", authSource);
+        if (previousHttpsFactory != null) HttpsURLConnection.setDefaultSSLSocketFactory(previousHttpsFactory);
     }
     private static SSLContext tls() throws Exception {
         KeyStore store = KeyStore.getInstance("JKS");

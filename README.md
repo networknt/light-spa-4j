@@ -13,3 +13,5 @@ including direct-MSAL signing keys, WebSocket Origins, and enforced logout.
 [Youtube Channel](https://www.youtube.com/channel/UCHCRMWJVXw8iB7zKxF55Byw) |
 [Documentation](https://doc.networknt.com/style/light-spa-4j/) |
 [Contribution Guide](https://doc.networknt.com/contribute/) |
+
+See [Token trust migration](TOKEN-TRUST-MIGRATION.md) for the isolated signing and application policies required by stateless-auth and msal-exchange (follow-up to #173 / #182).

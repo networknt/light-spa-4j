@@ -223,24 +223,13 @@ through ordinary renewal; legacy values no longer survive indefinitely.
 Run backend validation with `mvn test` (or `mvn verify`). Handler and local TLS
 tests are component evidence, not deployed Portal/browser/proxy qualification.
 
-For logout with an unpublished JWT key ID, the gateway confirms that the key is
-absent from successfully fetched and parsed JWKS before treating the session as
-unusable. In multi-auth-server configurations, confirmation uses every configured
-key provider rather than the default server: this conservative superset includes
-all service/path-selected JWT authorities. A key found at any provider, or a
-failure at any provider, leaves this confirmation uncertain. This does not change
-the normal verifier's routing or authorize requests with an unverified token.
-Trusted-browser cleanup can clear only confirmed unusable sessions; uncertainty
-returns 503 with cookies preserved.
-
-Confirmation retains one process-local JWKS snapshot for five seconds, including
-partial/failed results. Concurrent callers share one in-flight confirmation future;
-network calls run outside the class monitor. Waiters stop after five seconds and
-return an uncertain result (503, preserving cookies) without canceling the owner.
-The owner still uses the OAuth client's per-provider request timeouts. Configuration
-replacement invalidates it. The snapshot contains key IDs from provider responses,
-not a growing map of attacker-supplied IDs, so different missing IDs share the same
-confirmation fetches. The normal verifier's initial unknown-key lookup remains;
-this bounds the additional confirmation fetches to one per configured provider
-per cache window. A light-4j verifier change would be needed to share its original
-lookup outcome or bound its own repeated misses.
+For logout with an unpublished JWT key ID, the follow-up token-trust change uses
+exactly the same isolated authority and policy as authentication. A successfully
+fetched JWKS with no matching signing key makes the session unusable; a key-server
+or parse failure remains uncertain and preserves cookies with 503. There is no
+second confirmation fetch against the default or other client.yml providers.
+The per-policy resolver shares in-flight lookups, bounds waiters to five seconds,
+caches lookup failures for five seconds, and uses jose4j's successful key cache and
+30-second unknown-key refresh reprieve. See [Token trust migration](TOKEN-TRUST-MIGRATION.md)
+for the required configuration and key-rotation overlap. This supersedes the
+intermediate multi-provider confirmation implementation from PR #183.

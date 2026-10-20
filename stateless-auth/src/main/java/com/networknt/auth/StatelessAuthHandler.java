@@ -22,8 +22,7 @@ import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
-import com.networknt.security.JwtVerifier;
-import com.networknt.security.SecurityConfig;
+import com.networknt.auth.trust.JwtTrust;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
 import com.networknt.auth.csrf.Csrf;
@@ -109,13 +108,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final AtomicLong LEGACY_LOGOUT_GET_COUNT = new AtomicLong();
     private static final AtomicLong LOGOUT_CSRF_WOULD_REJECT_COUNT = new AtomicLong();
 
-    static SecurityConfig securityConfig;
-    static JwtVerifier jwtVerifier;
-    static {
-        securityConfig = SecurityConfig.load();
-        jwtVerifier = new JwtVerifier(securityConfig);
-    }
-
     private volatile HttpHandler next;
 
     public StatelessAuthHandler() {
@@ -127,6 +119,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         // This handler only cares about /authorization path. Pass to the next handler if path is not matched.
         StatelessAuthConfig config = StatelessAuthConfig.load();
+        if (!config.isEnabled()) { Handler.next(exchange, next); return; }
         if (Methods.OPTIONS.equals(exchange.getRequestMethod())) {
             Handler.next(exchange, next);
             return;
@@ -163,6 +156,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 return;
             }
             List scopes = setCookies(exchange, result.getResult(), csrf, config);
+            if (scopes == null) return;
             if(logger.isDebugEnabled()) logger.debug("scopes = {}", scopes);
             if (config.getRedirectUri() != null && !config.getRedirectUri().isEmpty()) {
                 exchange.setStatusCode(StatusCodes.OK);
@@ -197,7 +191,9 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if(cookie != null) {
                 jwt = cookie.getValue();
                 // verify the jwt without caring about expiration and compare csrf token
-                JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
+                JwtClaims claims;
+                try { claims = config.getTokenTrust().verify(jwt, true); }
+                catch (InvalidJwtException e) { rejectToken(exchange, e); return; }
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 String headerCsrf;
                 try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), config.getBrowserAllowedOrigins(), exchange.getRequestCookie(Constants.CSRF) == null ? null : exchange.getRequestCookie(Constants.CSRF).getValue()); }
@@ -300,7 +296,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         Cookie access = exchange.getRequestCookie(ACCESS_TOKEN);
         Cookie csrf = exchange.getRequestCookie(Constants.CSRF);
         String cookieCsrf = csrf == null ? null : csrf.getValue();
-        LogoutBinding.State binding = LogoutBinding.classify(jwtVerifier, access == null ? null : access.getValue(), cookieCsrf);
+        LogoutBinding.State binding = LogoutBinding.classify(config.getTokenTrust(), access == null ? null : access.getValue(), cookieCsrf);
         if (binding == LogoutBinding.State.USABLE && Csrf.equal(headerCsrf, cookieCsrf)) return true;
         if (binding == LogoutBinding.State.UNUSABLE && Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) return true;
         if (binding == LogoutBinding.State.UNKNOWN && config.isLogoutCsrfEnforced()) {
@@ -324,6 +320,17 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if(exchange.getRequestCookie(name) != null) return true;
         }
         return false;
+    }
+
+    private void rejectToken(HttpServerExchange exchange, InvalidJwtException failure) {
+        if (JwtTrust.unavailable(failure)) {
+            sessionUnavailable(exchange);
+        } else {
+            setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED,
+                    failure.hasExpired() ? "ERR10001" : "ERR10000",
+                    failure.hasExpired() ? "AUTH_TOKEN_EXPIRED" : "INVALID_AUTH_TOKEN",
+                    "Token failed the configured signing or application policy."));
+        }
     }
 
     private void rejectCsrf(HttpServerExchange exchange, String code) {
@@ -357,8 +364,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             return;
         }
         if (result.isSuccess()) {
-            setCookies(exchange, result.getResponse(), result.getCsrf(), config);
-            if (!exchange.isResponseStarted()) sessionRefreshed(exchange);
+            if (setCookies(exchange, result.getResponse(), result.getCsrf(), config) != null) sessionRefreshed(exchange);
         } else if (result.isInvalidRefreshToken()) {
             removeCookies(exchange, config);
             setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
@@ -398,8 +404,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 }
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
-                    setCookies(exchange, response, result.getCsrf(), config);
-                    if (exchange.isResponseStarted()) return null;
+                    if (setCookies(exchange, response, result.getCsrf(), config) == null) return null;
                     if (!Csrf.equal(verifiedCsrf, result.getCsrf())) {
                         sessionRefreshed(exchange);
                         return null;
@@ -457,7 +462,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
         // The scopes list is returned and will be part of the response.
         List<String> scopes = null;
         try {
-            claims = jwtVerifier.verifyJwt(accessToken, true, true);
+            claims = config.getTokenTrust().verify(accessToken, false);
             roles = claims.getStringClaimValue(ROLE);
             if(roles == null) {
                 roles = "user"; // default role for all authenticated users.
@@ -469,8 +474,11 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
         } catch (InvalidJwtException e) {
-            logger.error("Exception: ", e);
-            setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
+            rejectToken(exchange, e);
+            return null;
+        }
+        if (!Csrf.equal(csrf, claims.getStringClaimValue(Constants.CSRF))) {
+            rejectCsrf(exchange, "ERR10039");
             return null;
         }
 
@@ -551,7 +559,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setHttpOnly(false)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
-        return scopes;
+        return scopes == null ? List.of() : scopes;
     }
 
     @Override

@@ -60,7 +60,13 @@ public class MsalTokenExchangeHandlerTest {
     private static final char[] STORE_PASSWORD = "password".toCharArray();
     final Http2Client client = Http2Client.getInstance();
 
+    private static final javax.net.ssl.SSLSocketFactory PREVIOUS_HTTPS_FACTORY = javax.net.ssl.HttpsURLConnection.getDefaultSSLSocketFactory();
+    @org.junit.jupiter.api.AfterAll
+    static void restoreHttpsTrust() { javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(PREVIOUS_HTTPS_FACTORY); }
+
     private static volatile boolean jwksUnavailable;
+    private static volatile boolean invalidIssuedPolicy;
+    private static final java.util.concurrent.atomic.AtomicInteger tokenRequests = new java.util.concurrent.atomic.AtomicInteger();
     private static volatile boolean secondaryJwksUnavailable;
     private static volatile CountDownLatch secondaryEntered;
     private static volatile CountDownLatch secondaryRelease;
@@ -68,8 +74,6 @@ public class MsalTokenExchangeHandlerTest {
     private static volatile boolean secondaryHasRetiredKey;
     private static final java.util.concurrent.atomic.AtomicInteger keyRequests = new java.util.concurrent.atomic.AtomicInteger();
 
-    @org.junit.jupiter.api.BeforeEach
-    public void resetLogoutKeySnapshot() { LogoutBinding.clearKeySnapshot(); }
 
     private static volatile CountDownLatch slowRefreshEntered;
     private static volatile CountDownLatch slowRefreshRelease;
@@ -77,6 +81,8 @@ public class MsalTokenExchangeHandlerTest {
     @BeforeAll
     public static void setUp() throws IOException {
         sslContext = createSSLContext(loadKeyStore(SERVER_KEY_STORE), loadKeyStore(SERVER_TRUST_STORE), false);
+        javax.net.ssl.HttpsURLConnection.setDefaultSSLSocketFactory(
+                createSSLContext(loadKeyStore(SERVER_KEY_STORE), loadKeyStore(SERVER_KEY_STORE), true).getSocketFactory());
 
         if(authServer == null) {
             logger.info("starting server");
@@ -233,7 +239,10 @@ public class MsalTokenExchangeHandlerTest {
         // Create a token with 600 second expiry (matches the JWT exp claim).
         try {
             Map<String, Object> map = new HashMap<>();
-            String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
+            tokenRequests.incrementAndGet();
+            JwtClaims issued = getTestClaims(csrfValue != null ? csrfValue : csrfToken);
+            if (invalidIssuedPolicy) issued.setAudience("wrong-provider-audience");
+            String token = getJwt(issued);
             map.put("access_token", token);
             map.put("token_type", "Bearer");
             map.put("refresh_token", "refresh_token_value");
@@ -260,6 +269,107 @@ public class MsalTokenExchangeHandlerTest {
                 exchange.endExchange();
             }
         };
+    }
+
+    @Test
+    public void testExchangeIdPolicyRejectsWrongClaimsBeforeCallingProvider() throws Exception {
+        int before = tokenRequests.get();
+        for (String field : new String[]{"iss", "tid", "aud", "ver", "scp", "nonce", "idtyp"}) {
+            JwtClaims claims = getMicrosoftClaims(false);
+            claims.setClaim(field, field.equals("idtyp") ? "app" : field.equals("nonce") ? "" : "wrong");
+            ClientResponse response = sendRequest(Methods.POST, "/auth/ms/exchange", null, null, null, getJwt(claims), null);
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode(), field);
+            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+            Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+        }
+        Assertions.assertEquals(before, tokenRequests.get());
+    }
+
+    @Test
+    public void testIdSubjectExchangeAndReturnedInternalTokenPolicy() throws Exception {
+        String id = getMicrosoftJwt(false);
+        ClientResponse accepted = sendRequest(Methods.POST, "/auth/ms/exchange", null, null, null, id, null);
+        Assertions.assertEquals(StatusCodes.OK, accepted.getResponseCode());
+        Assertions.assertNotNull(issuedCookie(accepted, "accessToken"));
+        invalidIssuedPolicy = true;
+        try {
+            ClientResponse rejected = sendRequest(Methods.POST, "/auth/ms/exchange", null, null, null, id, null);
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, rejected.getResponseCode());
+            Assertions.assertNull(rejected.getResponseHeaders().get(Headers.SET_COOKIE));
+        } finally { invalidIssuedPolicy = false; }
+    }
+
+    @Test
+    public void testAzureAccessPolicyRejectsIdAndWrongAccessClaimsOnEveryRequest() throws Exception {
+        MsalExchangeConfig config = MsalExchangeConfig.load();
+        String oldMode = config.getAuthorizationToken();
+        config.setAuthorizationToken(MsalExchangeConfig.AUTHORIZATION_TOKEN_AZURE_MSAL);
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        String internal = getJwt(600, csrf);
+        try {
+            for (String field : new String[]{"iss", "aud", "tid", "ver", "azp", "scp", "idtyp", "id-token"}) {
+                JwtClaims claims = getMicrosoftClaims(!field.equals("id-token"));
+                if (!field.equals("id-token")) claims.setClaim(field, field.equals("idtyp") ? "app" : "wrong");
+                String cookies = "accessToken=" + internal + "; csrf=" + csrf + "; msalAccessToken=" + getJwt(claims);
+                for (int retry = 0; retry < 2; retry++) {
+                    ClientResponse response = sendRequest(Methods.POST, "/api", cookies, csrf, "https://portal.test");
+                    Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode(), field);
+                    Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+                }
+            }
+        } finally { config.setAuthorizationToken(oldMode); }
+    }
+
+    @Test
+    public void testWrongSessionIssuerAndAudienceNeverReachDownstream() throws Exception {
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        for (String field : new String[]{"iss", "aud"}) {
+            JwtClaims claims = getTestClaims(csrf);
+            claims.setClaim(field, "wrong-" + field);
+            ClientResponse response = sendRequest(Methods.POST, "/api", "accessToken=" + getJwt(claims) + "; csrf=" + csrf, csrf, "https://portal.test");
+            Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+            Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+        }
+    }
+
+    @Test
+    public void testWrongProviderTokenCannotEstablishRenewOrRecoverSession() throws Exception {
+        invalidIssuedPolicy = true;
+        String csrf = com.networknt.auth.csrf.Csrf.nonce();
+        try {
+            for (boolean existing : new boolean[]{false, true}) {
+                String cookies = "refreshToken=invalid-issued-policy-" + java.util.UUID.randomUUID() + "; csrf=" + csrf
+                        + (existing ? "; accessToken=" + getJwt(30, csrf) : "");
+                ClientResponse response = sendRequest(Methods.POST, "/api", cookies, existing ? csrf : null, "https://portal.test");
+                Assertions.assertEquals(StatusCodes.UNAUTHORIZED, response.getResponseCode());
+                Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
+                Assertions.assertNull(response.getResponseHeaders().getFirst("X-Test-Next"));
+            }
+        } finally { invalidIssuedPolicy = false; }
+    }
+
+    @Test
+    public void testPolicyReloadAndFailedSnapshots() throws Exception {
+        java.util.Map<String, Object> original = Config.getInstance().getJsonMapConfig("msal-exchange");
+        var first = MsalExchangeConfig.load();
+        try {
+            java.util.Map<String, Object> invalid = new java.util.HashMap<>(original);
+            invalid.remove("internalTokenTrust");
+            Config.getInstance().putInConfigCache("msal-exchange", invalid);
+            RuntimeException failure = Assertions.assertThrows(IllegalArgumentException.class, MsalExchangeConfig::load);
+            Assertions.assertSame(failure, Assertions.assertThrows(IllegalArgumentException.class, MsalExchangeConfig::load));
+            java.util.Map<String, Object> disabled = new java.util.HashMap<>(invalid);
+            disabled.put("enabled", false);
+            Config.getInstance().putInConfigCache("msal-exchange", disabled);
+            Assertions.assertFalse(MsalExchangeConfig.load().isEnabled());
+            java.util.Map<String, Object> replacement = new java.util.HashMap<>(original);
+            Config.getInstance().putInConfigCache("msal-exchange", replacement);
+            Assertions.assertNotSame(first.getInternalTokenTrust(), MsalExchangeConfig.load().getInternalTokenTrust(), "replacement owns a fresh signing resolver/cache");
+        } finally {
+            Config.getInstance().putInConfigCache("msal-exchange", original);
+            MsalExchangeConfig.load();
+        }
     }
 
     @Test
@@ -468,6 +578,9 @@ public class MsalTokenExchangeHandlerTest {
     }
 
     private ClientResponse sendRequest(HttpString method, String path, String cookie, String csrf, String origin) throws Exception {
+        return sendRequest(method, path, cookie, csrf, origin, null, null);
+    }
+    private ClientResponse sendRequest(HttpString method, String path, String cookie, String csrf, String origin, String subject, String apiToken) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<ClientResponse> reference = new AtomicReference<>();
         SimpleConnectionState.ConnectionToken token = client.borrow(
@@ -476,6 +589,8 @@ public class MsalTokenExchangeHandlerTest {
         try {
             ClientConnection connection = (ClientConnection) token.getRawConnection();
             ClientRequest request = new ClientRequest().setPath(path).setMethod(method);
+            if (subject != null) request.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + subject);
+            if (apiToken != null) request.getRequestHeaders().put(new HttpString(MsalExchangeConfig.DEFAULT_MSAL_ACCESS_TOKEN_HEADER), "Bearer " + apiToken);
             if (origin != null) request.getRequestHeaders().put(Headers.ORIGIN, origin);
             request.getRequestHeaders().put(Headers.HOST, "localhost");
             if (cookie != null) request.getRequestHeaders().put(Headers.COOKIE, cookie);
@@ -668,70 +783,11 @@ public class MsalTokenExchangeHandlerTest {
         return token;
     }
 
-    @Test
-    public void testKeyConfirmationWaiterTimeoutDoesNotCancelOwner() throws Exception {
-        String csrf = com.networknt.auth.csrf.Csrf.nonce();
-        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
-        secondaryEntered = new CountDownLatch(1);
-        secondaryRelease = new CountDownLatch(1);
-        int before = secondaryRequests.get();
-        var owner = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            try { return sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test"); }
-            catch (Exception e) { throw new java.util.concurrent.CompletionException(e); }
-        });
-        try {
-            Assertions.assertTrue(secondaryEntered.await(3, TimeUnit.SECONDS));
-            ClientResponse waiter = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
-            Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, waiter.getResponseCode());
-            Assertions.assertNull(waiter.getResponseHeaders().get(Headers.SET_COOKIE));
-            Assertions.assertFalse(owner.isDone(), "waiter must finish while owner remains blocked");
-            Assertions.assertEquals(before + 1, secondaryRequests.get(), "one shared confirmation lookup");
-        } finally {
-            secondaryRelease.countDown();
-        }
-        try {
-            Assertions.assertEquals(StatusCodes.NO_CONTENT, owner.get(4, TimeUnit.SECONDS).getResponseCode());
-            Assertions.assertEquals(StatusCodes.NO_CONTENT, sendRequest(Methods.POST, "/auth/ms/logout", cookies,
-                    null, "https://portal.test").getResponseCode());
-            Assertions.assertEquals(before + 1, secondaryRequests.get(), "completed owner snapshot remains cached");
-        } finally {
-            secondaryEntered = null;
-            secondaryRelease = null;
-            LogoutBinding.clearKeySnapshot();
-        }
-    }
 
-    @Test
-    public void testSecondaryProviderPreventsFalseRetiredKeyCleanup() throws Exception {
-        String csrf = com.networknt.auth.csrf.Csrf.nonce();
-        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
-        try {
-            for (boolean unavailable : new boolean[]{false, true}) {
-                secondaryHasRetiredKey = true;
-                secondaryJwksUnavailable = unavailable;
-                LogoutBinding.clearKeySnapshot();
-                ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
-                Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode(), "provider unavailable=" + unavailable);
-                Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
-            }
-        } finally {
-            secondaryHasRetiredKey = false;
-            secondaryJwksUnavailable = false;
-            LogoutBinding.clearKeySnapshot();
-        }
-    }
 
-    @Test
-    public void testUnavailableJwksPreservesLogoutCookies() throws Exception {
-        String csrf = com.networknt.auth.csrf.Csrf.nonce();
-        String cookies = "accessToken=" + retiredKeyJwt(csrf) + "; csrf=" + csrf;
-        jwksUnavailable = true;
-        try {
-            ClientResponse response = sendRequest(Methods.POST, "/auth/ms/logout", cookies, null, "https://portal.test");
-            Assertions.assertEquals(StatusCodes.SERVICE_UNAVAILABLE, response.getResponseCode());
-            Assertions.assertNull(response.getResponseHeaders().get(Headers.SET_COOKIE));
-        } finally { jwksUnavailable = false; LogoutBinding.clearKeySnapshot(); }
-    }
+
+
+
 
     @Test
     public void testTemporaryRecoveryAndRenewalFailuresPreserveCookies() throws Exception {
@@ -830,6 +886,21 @@ public class MsalTokenExchangeHandlerTest {
         if(csrfToken != null) claims.setClaim("csrf", csrfToken);
         List<String> scope = Arrays.asList("api.r", "api.w");
         claims.setStringListClaim("scope", scope); // multi-valued claims work too and will end up as a JSON array
+        return claims;
+    }
+
+    private static String getMicrosoftJwt(boolean access) throws Exception { return getJwt(getMicrosoftClaims(access)); }
+    private static JwtClaims getMicrosoftClaims(boolean access) throws Exception {
+        JwtClaims claims = getTestClaims(null);
+        claims.setIssuer("https://login.microsoftonline.com/22222222-2222-2222-2222-222222222222/v2.0");
+        claims.setAudience(access ? "api://gateway" : "11111111-1111-1111-1111-111111111111");
+        claims.setSubject("fixture-user");
+        claims.setClaim("tid", "22222222-2222-2222-2222-222222222222");
+        claims.setClaim("ver", "2.0");
+        if (access) {
+            claims.setClaim("azp", "11111111-1111-1111-1111-111111111111");
+            claims.setClaim("scp", "gateway.read");
+        } else claims.setClaim("nonce", "fixture-login-nonce");
         return claims;
     }
 
@@ -962,7 +1033,7 @@ public class MsalTokenExchangeHandlerTest {
     public void testAzureMsalPlacementPreservesAuthorizationAndInjectsLightToken() throws Exception {
         String testCsrf = "testCsrfValue123";
         String lightJwt = getJwt(600, testCsrf);
-        String azureJwt = getJwt(600, "azureCsrfIgnored");
+        String azureJwt = getMicrosoftJwt(true);
         MsalExchangeConfig config = MsalExchangeConfig.load();
         String originalAuthorizationToken = config.getAuthorizationToken();
         String originalLightTokenHeader = config.getLightTokenHeader();
@@ -1010,8 +1081,8 @@ public class MsalTokenExchangeHandlerTest {
 
     @Test
     public void testAzureMsalExchangeStoresMsalAccessTokenCookie() throws Exception {
-        String idJwt = getJwt(600, "idCsrfIgnored");
-        String azureAccessJwt = getJwt(600, "azureAccessCsrfIgnored");
+        String idJwt = getMicrosoftJwt(false);
+        String azureAccessJwt = getMicrosoftJwt(true);
         MsalExchangeConfig config = MsalExchangeConfig.load();
         String originalAuthorizationToken = config.getAuthorizationToken();
         String originalExchangePath = config.getExchangePath();

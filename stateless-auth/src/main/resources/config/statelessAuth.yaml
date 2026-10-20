@@ -61,3 +61,6 @@ websocketAllowedOrigins: ""
 
 # Explicit public HTTP browser Origins; independent of WebSocket enablement.
 browserAllowedOrigins: ""
+
+# Isolated token trust policies. See TOKEN-TRUST-MIGRATION.md; required for enabled roles.
+tokenTrust: ${statelessAuth.tokenTrust:}

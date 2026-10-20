@@ -33,3 +33,8 @@ websocketAllowedOrigins: ${msal-exchange.websocketAllowedOrigins:}
 
 # Explicit public HTTP browser Origins; independent of WebSocket enablement.
 browserAllowedOrigins: ${msal-exchange.browserAllowedOrigins:}
+
+# Isolated token trust policies. See TOKEN-TRUST-MIGRATION.md; required for enabled roles.
+internalTokenTrust: ${msal-exchange.internalTokenTrust:}
+subjectTokenTrust: ${msal-exchange.subjectTokenTrust:}
+apiTokenTrust: ${msal-exchange.apiTokenTrust:}

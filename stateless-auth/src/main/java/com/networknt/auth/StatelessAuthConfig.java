@@ -1,6 +1,8 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.config.schema.MapField;
+import com.networknt.auth.trust.JwtTrust;
 import com.networknt.config.schema.ArrayField;
 import com.networknt.auth.csrf.Csrf;
 import com.networknt.config.schema.ConfigSchema;
@@ -56,6 +58,11 @@ public class StatelessAuthConfig {
     private static final String GITHUB_CLIENT_ID = "githubClientId";
     private static final String GITHUB_CLIENT_SECRET = "githubClientSecret";
 
+    @MapField(configFieldName = "tokenTrust", externalizedKeyName = "tokenTrust", valueType = Object.class,
+            description = "Isolated INTERNAL_ACCESS signing endpoint and exact issuer/audience policy. Required when enabled and used.")
+    private Map<String, Object> tokenTrust;
+    private JwtTrust tokenTrustVerifier;
+    JwtTrust getTokenTrust() { return tokenTrustVerifier; }
     private final Map<String, Object> mappedConfig;
     @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
             description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
@@ -66,6 +73,8 @@ public class StatelessAuthConfig {
     private Set<String> browserAllowedOrigins = Set.of();
     public Set<String> getBrowserAllowedOrigins() { return browserAllowedOrigins; }
     private static volatile StatelessAuthConfig instance;
+    private record LoadFailure(Map<String, Object> source, RuntimeException error) { }
+    private static volatile LoadFailure loadFailure;
 
     // --- Annotated Fields ---
 
@@ -283,6 +292,8 @@ public class StatelessAuthConfig {
     public static StatelessAuthConfig load(String configName) {
         if (CONFIG_NAME.equals(configName)) {
             Map<String, Object> mappedConfig = Config.getInstance().getJsonMapConfig(configName);
+            LoadFailure failure = loadFailure;
+            if (failure != null && failure.source == mappedConfig) throw failure.error;
             if (instance != null && instance.getMappedConfig() == mappedConfig) {
                 return instance;
             }
@@ -291,7 +302,11 @@ public class StatelessAuthConfig {
                 if (instance != null && instance.getMappedConfig() == mappedConfig) {
                     return instance;
                 }
-                instance = new StatelessAuthConfig(configName);
+                LoadFailure failed = loadFailure;
+                if (failed != null && failed.source == mappedConfig) throw failed.error;
+                try { instance = new StatelessAuthConfig(configName); }
+                catch (RuntimeException error) { loadFailure = new LoadFailure(mappedConfig, error); throw error; }
+                loadFailure = null;
                 ModuleRegistry.registerModule(CONFIG_NAME, StatelessAuthConfig.class.getName(), Config.getNoneDecryptedInstance().getJsonMapConfigNoCache(CONFIG_NAME), null);
                 return instance;
             }
@@ -303,10 +318,6 @@ public class StatelessAuthConfig {
 
     // --- Private Config Loader ---
     private void setConfigData() {
-        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
-        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
-        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
-        browserAllowedOrigins = Set.copyOf(browserOrigins);
         Object object = mappedConfig.get(ENABLED);
         if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);
 
@@ -378,6 +389,13 @@ public class StatelessAuthConfig {
 
         object = mappedConfig.get(GITHUB_CLIENT_SECRET);
         if (object != null) githubClientSecret = (String)object;
+        if (!enabled) return;
+        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
+        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
+        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
+        browserAllowedOrigins = Set.copyOf(browserOrigins);
+        tokenTrust = JwtTrust.configuration(mappedConfig.get("tokenTrust"));
+        tokenTrustVerifier = JwtTrust.load(tokenTrust, JwtTrust.Kind.INTERNAL_ACCESS);
     }
 
     public Map<String, Object> getMappedConfig() {
