@@ -229,6 +229,7 @@
                 <version>${version.jose4j}</version>
             </dependency>
             <dependency>
+                <!-- Keep classic consumers on 2.7 independently of config snapshots or future Redisson use. -->
                 <groupId>org.yaml</groupId>
                 <artifactId>snakeyaml</artifactId>
                 <version>${version.snakeyaml}</version>
