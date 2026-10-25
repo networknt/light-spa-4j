@@ -8,9 +8,7 @@ import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
-import com.networknt.security.JwtVerifier;
-import com.networknt.security.SecurityConfig;
-import com.networknt.security.VerificationException;
+import com.networknt.auth.trust.JwtTrust;
 import com.networknt.utility.Constants;
 import com.networknt.status.Status;
 import com.networknt.auth.csrf.Csrf;
@@ -26,7 +24,6 @@ import io.undertow.util.Methods;
 import io.undertow.util.StatusCodes;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
-import org.jose4j.jwt.consumer.JwtContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,27 +71,6 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String ROLE = "role";
 
 
-    // Two separate JwtVerifier instances ---
-    static SecurityConfig securityConfig;
-    static SecurityConfig msalSecurityConfig;
-    static JwtVerifier internalJwtVerifier; // For tokens from your second provider (in cookies)
-    static JwtVerifier msalJwtVerifier;     // For tokens from Microsoft for token exchange
-
-    static {
-        // Verifier for your internal tokens (from cookies)
-        securityConfig = SecurityConfig.load();
-        internalJwtVerifier = new JwtVerifier(securityConfig);
-
-        // Verifier for incoming Microsoft tokens. Assumes a "msalJwt" section in security.yml
-        try {
-            msalSecurityConfig = SecurityConfig.load("security-msal");
-            msalJwtVerifier = new JwtVerifier(msalSecurityConfig);
-        } catch(ConfigException e) {
-            logger.error("Failed to load msalJwt configuration from security.yml. Microsoft token validation will fail.", e);
-            msalJwtVerifier = null;
-        }
-    }
-
     private volatile HttpHandler next;
 
     /**
@@ -108,6 +84,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         MsalExchangeConfig config = MsalExchangeConfig.load();
+        if (!config.isEnabled()) { Handler.next(exchange, next); return; }
         if (Methods.OPTIONS.equals(exchange.getRequestMethod())) {
             Handler.next(exchange, next);
             return;
@@ -138,7 +115,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             }
 
             // --- Validate the incoming Microsoft ID token ---
-            if(verifyMicrosoftToken(exchange, microsoftToken, reqPath) == null) return;
+            if(verifyMicrosoftToken(exchange, microsoftToken, config.getSubjectTokenTrust()) == null) return;
 
             String msalAccessToken = null;
             int msalAccessTokenMaxAge = config.getSessionTimeout();
@@ -148,7 +125,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, JWT_BEARER_TOKEN_MISSING);
                     return;
                 }
-                JwtClaims msalAccessTokenClaims = verifyMicrosoftToken(exchange, msalAccessToken, reqPath);
+                JwtClaims msalAccessTokenClaims = verifyMicrosoftToken(exchange, msalAccessToken, config.getApiTokenTrust());
                 if(msalAccessTokenClaims == null) return;
                 msalAccessTokenMaxAge = accessTokenCookieMaxAge(msalAccessTokenClaims, config);
             }
@@ -169,6 +146,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
             // --- The setCookies logic is identical ---
             List<String> scopes = setCookies(exchange, result.getResult(), csrf, config);
+            if (scopes == null) return;
             if(msalAccessToken != null) {
                 setMsalAccessTokenCookie(exchange, msalAccessToken, msalAccessTokenMaxAge, config);
             }
@@ -206,7 +184,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     return;
                 }
                 String msalAccessToken = msalAccessTokenCookie.getValue();
-                if(verifyMicrosoftToken(exchange, msalAccessToken, reqPath) == null) return;
+                if(verifyMicrosoftToken(exchange, msalAccessToken, config.getApiTokenTrust()) == null) return;
                 microsoftAccessToken = msalAccessToken;
             }
             String jwt = null;
@@ -214,7 +192,9 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             if(cookie != null) {
                 jwt = cookie.getValue();
                 // verify the jwt with the internal verifier, the token is from the light-oauth token exchange.
-                JwtClaims claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
+                JwtClaims claims;
+                try { claims = config.getInternalTokenTrust().verify(jwt, true); }
+                catch (InvalidJwtException e) { rejectToken(exchange, e); return; }
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 String headerCsrf;
                 try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), config.getBrowserAllowedOrigins(), exchange.getRequestCookie(Constants.CSRF) == null ? null : exchange.getRequestCookie(Constants.CSRF).getValue()); }
@@ -303,7 +283,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         Cookie access = exchange.getRequestCookie(ACCESS_TOKEN);
         Cookie csrf = exchange.getRequestCookie(Constants.CSRF);
         String cookieCsrf = csrf == null ? null : csrf.getValue();
-        LogoutBinding.State binding = LogoutBinding.classify(internalJwtVerifier, access == null ? null : access.getValue(), cookieCsrf);
+        LogoutBinding.State binding = LogoutBinding.classify(config.getInternalTokenTrust(), access == null ? null : access.getValue(), cookieCsrf);
         if (binding == LogoutBinding.State.USABLE && Csrf.equal(headerCsrf, cookieCsrf)) return true;
         if (binding == LogoutBinding.State.UNUSABLE && Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) return true;
         if (binding == LogoutBinding.State.UNKNOWN && config.isLogoutCsrfEnforced()) {
@@ -345,19 +325,11 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         return token;
     }
 
-    private JwtClaims verifyMicrosoftToken(final HttpServerExchange exchange, String microsoftToken, String reqPath) throws Exception {
-        if(msalJwtVerifier == null) {
-            // handle case where config failed to load
-            throw new Exception("MsalJwtVerifier is not initialized.");
-        }
+    private JwtClaims verifyMicrosoftToken(HttpServerExchange exchange, String token, JwtTrust trust) {
         try {
-            // We only need to verify it, we don't need the claims for much.
-            // The second provider will do its own validation and claim mapping.
-            // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
-            return msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
-        } catch (InvalidJwtException | VerificationException e) {
-            logger.error("Microsoft token validation failed.", e);
-            setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
+            return trust.verify(token, false);
+        } catch (InvalidJwtException e) {
+            rejectToken(exchange, e);
             return null;
         }
     }
@@ -375,6 +347,17 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     }
 
     // --- The following methods can be copied directly or moved to a shared utility class ---
+    private void rejectToken(HttpServerExchange exchange, InvalidJwtException failure) {
+        if (JwtTrust.unavailable(failure)) {
+            sessionUnavailable(exchange);
+        } else {
+            setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED,
+                    failure.hasExpired() ? "ERR10001" : "ERR10000",
+                    failure.hasExpired() ? "AUTH_TOKEN_EXPIRED" : "INVALID_AUTH_TOKEN",
+                    "Token failed the configured signing or application policy."));
+        }
+    }
+
     private void rejectCsrf(HttpServerExchange exchange, String code) {
         setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, code, "CSRF_VALIDATION_FAILED",
                 "Missing or invalid session-bound CSRF value or transport"));
@@ -406,8 +389,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             return;
         }
         if (result.isSuccess()) {
-            setCookies(exchange, result.getResponse(), result.getCsrf(), config);
-            if (!exchange.isResponseStarted()) sessionRefreshed(exchange);
+            if (setCookies(exchange, result.getResponse(), result.getCsrf(), config) != null) sessionRefreshed(exchange);
         } else if (result.isInvalidRefreshToken()) {
             removeCookies(exchange, config);
             setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
@@ -424,10 +406,22 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 "Session state could not be determined. Cookies were preserved; retry later."));
     }
 
+    private void sessionVerificationPending(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "1");
+        setExchangeStatus(exchange, new Status(StatusCodes.SERVICE_UNAVAILABLE, "SPA_SESSION_TEMPORARY_FAILURE",
+                "SESSION_VERIFICATION_PENDING", "Rotated refresh credential retained. Access token not accepted; retry later."));
+    }
+
     private String renewalUnavailable(HttpServerExchange exchange, String originalJwt, long expiresAt) {
+        return renewalUnavailable(exchange, originalJwt, expiresAt, false);
+    }
+
+    private String renewalUnavailable(HttpServerExchange exchange, String originalJwt, long expiresAt, boolean verificationPending) {
         // Recheck after the refresh attempt: it may have outlived the original token.
         if (System.currentTimeMillis() < expiresAt) return originalJwt;
-        sessionUnavailable(exchange);
+        if (verificationPending) sessionVerificationPending(exchange);
+        else sessionUnavailable(exchange);
         return null;
     }
 
@@ -447,8 +441,9 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 }
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
-                    setCookies(exchange, response, result.getCsrf(), config);
-                    if (exchange.isResponseStarted()) return null;
+                    CookieIssue issued = issueCookies(exchange, response, result.getCsrf(), config);
+                    if (issued.pending) return renewalUnavailable(exchange, originalJwt, expiresAt, true);
+                    if (issued.scopes == null) return null;
                     if (!Csrf.equal(verifiedCsrf, result.getCsrf())) {
                         sessionRefreshed(exchange);
                         return null;
@@ -518,7 +513,25 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
      * @return a list of scopes from the access token
      * @throws Exception if cookie setting fails
      */
+    private void setRefreshCookie(HttpServerExchange exchange, String refreshToken, String remember, MsalExchangeConfig config) {
+        exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
+                .setDomain(config.cookieDomain)
+                .setPath(config.getCookiePath())
+                .setMaxAge((remember == null || remember.equals("N")) ? config.getSessionTimeout() : config.getRememberMeTimeout())
+                .setHttpOnly(true)
+                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
+                .setSecure(config.cookieSecure));
+    }
+
     protected List<String> setCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, MsalExchangeConfig config) throws Exception {
+        CookieIssue issue = issueCookies(exchange, response, csrf, config);
+        if (issue.pending) sessionVerificationPending(exchange);
+        return issue.scopes;
+    }
+
+    private record CookieIssue(List<String> scopes, boolean pending) { }
+
+    private CookieIssue issueCookies(final HttpServerExchange exchange, TokenResponse response, String csrf, MsalExchangeConfig config) throws Exception {
         String accessToken = response.getAccessToken();
         String refreshToken = response.getRefreshToken();
         String remember = response.getRemember();
@@ -534,8 +547,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
         // The scopes list is returned and will be part of the response.
         List<String> scopes = null;
         try {
-            JwtContext context = internalJwtVerifier.parseJwt(accessToken);
-            claims = context.getJwtClaims();
+            claims = config.getInternalTokenTrust().verify(accessToken, false);
             roles = claims.getStringClaimValue(ROLE);
             if(roles == null) {
                 roles = "user"; // default role for all authenticated users.
@@ -547,9 +559,17 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
         } catch (InvalidJwtException e) {
-            logger.error("Exception: ", e);
-            setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
-            return null;
+            if (JwtTrust.unavailable(e) && refreshToken != null && !refreshToken.isBlank()) {
+                setRefreshCookie(exchange, refreshToken, remember, config);
+                exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+                return new CookieIssue(null, true);
+            }
+            rejectToken(exchange, e);
+            return new CookieIssue(null, false);
+        }
+        if (!Csrf.equal(csrf, claims.getStringClaimValue(Constants.CSRF))) {
+            rejectCsrf(exchange, "ERR10039");
+            return new CookieIssue(null, false);
         }
 
         // put all the info into a cookie object
@@ -560,13 +580,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 .setHttpOnly(true)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
-        exchange.setResponseCookie(new CookieImpl(REFRESH_TOKEN, refreshToken)
-                .setDomain(config.cookieDomain)
-                .setPath(config.getCookiePath())
-                .setMaxAge((remember == null || remember.equals("N")) ? config.getSessionTimeout() : config.getRememberMeTimeout())
-                .setHttpOnly(true)
-                .setSameSiteMode(CookieSameSiteMode.NONE.toString())
-                .setSecure(config.cookieSecure));
+        setRefreshCookie(exchange, refreshToken, remember, config);
         // this is user info in cookie, and it is accessible for Javascript.
         exchange.setResponseCookie(new CookieImpl(USER_ID, userId)
                 .setDomain(config.cookieDomain)
@@ -629,7 +643,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 .setHttpOnly(false)
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
-        return scopes;
+        return new CookieIssue(scopes == null ? List.of() : scopes, false);
     }
 
     @Override

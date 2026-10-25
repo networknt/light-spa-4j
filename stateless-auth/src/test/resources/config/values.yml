@@ -10,3 +10,9 @@ statelessAuth.websocketAllowedOrigins: https://portal.test
 
 # Keep owner transport alive beyond the real 5s single-flight waiter deadline.
 client.timeout: 9000
+
+statelessAuth.tokenTrust:
+  jwksUri: https://localhost:5882/oauth2/N2CMw0HGQXeLvC1wBfln2A/keys
+  issuer: urn:com:networknt:oauth2:v1
+  audience: urn:com.networknt
+  clockSkewSeconds: 0

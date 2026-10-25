@@ -85,6 +85,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                     return;
                 }
                 List scopes = setCookies(exchange, result.getResult(), csrf, config);
+                if (scopes == null) return;
                 if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
                     exchange.setStatusCode(StatusCodes.OK);
                     Map<String, Object> rs = new HashMap<>();

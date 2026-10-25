@@ -1,87 +1,419 @@
 {
-  "$schema" : "http://json-schema.org/draft-07/schema#",
-  "type" : "object",
-  "required" : [ "enabled", "exchangePath", "logoutPath", "cookieDomain", "cookiePath", "cookieSecure", "sessionTimeout", "rememberMeTimeout" ],
-  "properties" : {
-        "browserAllowedOrigins": {
-            "type": ["string", "array"],
-            "items": {"type": "string"},
-            "description": "Public HTTP browser Origins for proxy-safe recovery and read-only requests.",
-            "default": []
-        },
-        "websocketAllowedOrigins": {
-            "type": ["string", "array"],
-            "items": {"type": "string"},
-            "description": "Trusted browser Origins. Empty disables cookie-authenticated WebSockets.",
-            "default": []
-        },
-    "enabled" : {
-      "type" : "boolean",
-      "description" : "Indicates if the MSAL Exchange is enabled.",
-      "default" : true
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "required": [
+    "enabled",
+    "exchangePath",
+    "logoutPath",
+    "cookieDomain",
+    "cookiePath",
+    "cookieSecure",
+    "sessionTimeout",
+    "rememberMeTimeout"
+  ],
+  "properties": {
+    "browserAllowedOrigins": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Public HTTP browser Origins for proxy-safe recovery and read-only requests.",
+      "default": []
     },
-    "exchangePath" : {
-      "type" : "string",
-      "description" : "The new path your React SPA will call with the Microsoft token.",
-      "default" : "/auth/ms/exchange"
+    "websocketAllowedOrigins": {
+      "type": [
+        "string",
+        "array"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "Trusted browser Origins. Empty disables cookie-authenticated WebSockets.",
+      "default": []
     },
-    "logoutPath" : {
-      "type" : "string",
-      "description" : "The logout path can remain the same.",
-      "default" : "/auth/ms/logout"
+    "enabled": {
+      "type": "boolean",
+      "description": "Indicates if the MSAL Exchange is enabled.",
+      "default": true
     },
-    "logoutCsrfEnforced" : {
-      "type" : "boolean",
+    "exchangePath": {
+      "type": "string",
+      "description": "The new path your React SPA will call with the Microsoft token.",
+      "default": "/auth/ms/exchange"
+    },
+    "logoutPath": {
+      "type": "string",
+      "description": "The logout path can remain the same.",
+      "default": "/auth/ms/logout"
+    },
+    "logoutCsrfEnforced": {
+      "type": "boolean",
       "description": "Enforce session-bound CSRF on logout. False is insecure observation-only migration mode.",
-      "default" : true
+      "default": true
     },
-    "cookieDomain" : {
-      "type" : "string",
-      "description" : "The domain to use for the session cookie.",
-      "default" : "localhost"
+    "cookieDomain": {
+      "type": "string",
+      "description": "The domain to use for the session cookie.",
+      "default": "localhost"
     },
-    "cookiePath" : {
-      "type" : "string",
-      "description" : "The path to use for the session cookie.",
-      "default" : "/"
+    "cookiePath": {
+      "type": "string",
+      "description": "The path to use for the session cookie.",
+      "default": "/"
     },
-    "cookieSecure" : {
-      "type" : "boolean",
-      "description" : "If the session cookie should be marked as secure (requires HTTPS).",
-      "default" : false
+    "cookieSecure": {
+      "type": "boolean",
+      "description": "If the session cookie should be marked as secure (requires HTTPS).",
+      "default": false
     },
-    "sessionTimeout" : {
-      "type" : "integer",
-      "description" : "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n",
-      "default" : 3600,
-      "format" : "int32"
+    "sessionTimeout": {
+      "type": "integer",
+      "description": "Session timeout in seconds. This is the time after which the session will expire.\nDefault is 3600 seconds (1 hour).\n",
+      "default": 3600,
+      "format": "int32"
     },
-    "rememberMeTimeout" : {
-      "type" : "integer",
-      "description" : "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
-      "default" : 604800,
-      "format" : "int32"
+    "rememberMeTimeout": {
+      "type": "integer",
+      "description": "Remember me timeout in seconds. This is the time after which the session will expire\nif rememberMe is set true during login. Default is 604800 seconds (7 days).\n",
+      "default": 604800,
+      "format": "int32"
     },
-    "authorizationToken" : {
-      "type" : "string",
-      "description" : "Token to place in the downstream Authorization header. Supported values are light-oauth and azure-msal.",
-      "default" : "light-oauth",
-      "enum" : [ "light-oauth", "azure-msal" ]
+    "authorizationToken": {
+      "type": "string",
+      "description": "Token to place in the downstream Authorization header. Supported values are light-oauth and azure-msal.",
+      "default": "light-oauth",
+      "enum": [
+        "light-oauth",
+        "azure-msal"
+      ]
     },
-    "lightTokenHeader" : {
-      "type" : "string",
-      "description" : "Header used for the light-oauth token when authorizationToken is azure-msal.",
-      "default" : "X-Light-Token"
+    "lightTokenHeader": {
+      "type": "string",
+      "description": "Header used for the light-oauth token when authorizationToken is azure-msal.",
+      "default": "X-Light-Token"
     },
-    "msalAccessTokenHeader" : {
-      "type" : "string",
-      "description" : "Header that carries the Azure MSAL access token on the exchange request when authorizationToken is azure-msal.",
-      "default" : "X-MSAL-Access-Token"
+    "msalAccessTokenHeader": {
+      "type": "string",
+      "description": "Header that carries the Azure MSAL access token on the exchange request when authorizationToken is azure-msal.",
+      "default": "X-MSAL-Access-Token"
     },
-    "msalAccessTokenCookie" : {
-      "type" : "string",
-      "description" : "HttpOnly cookie used to store the Azure MSAL access token after exchange when authorizationToken is azure-msal.",
-      "default" : "msalAccessToken"
+    "msalAccessTokenCookie": {
+      "type": "string",
+      "description": "HttpOnly cookie used to store the Azure MSAL access token after exchange when authorizationToken is azure-msal.",
+      "default": "msalAccessToken"
+    },
+    "internalTokenTrust": {
+      "description": "Isolated internal token trust. See TOKEN-TRUST-MIGRATION.md.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/internalTokenTrust"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "subjectTokenTrust": {
+      "description": "Isolated id token trust. See TOKEN-TRUST-MIGRATION.md.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/subjectTokenTrust"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "apiTokenTrust": {
+      "description": "Isolated api token trust. See TOKEN-TRUST-MIGRATION.md.",
+      "anyOf": [
+        {
+          "$ref": "#/definitions/apiTokenTrust"
+        },
+        {
+          "type": "string"
+        }
+      ]
     }
-  }
+  },
+  "definitions": {
+    "internalTokenTrust": {
+      "type": "object",
+      "required": [
+        "jwksUri",
+        "issuer",
+        "audience"
+      ],
+      "properties": {
+        "jwksUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "issuer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clockSkewSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300,
+          "default": 0
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
+        }
+      }
+    },
+    "subjectTokenTrust": {
+      "type": "object",
+      "required": [
+        "jwksUri",
+        "issuer",
+        "audience",
+        "tenantId"
+      ],
+      "properties": {
+        "jwksUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "issuer": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https://"
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "clockSkewSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300,
+          "default": 0
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
+        }
+      }
+    },
+    "apiTokenTrust": {
+      "type": "object",
+      "required": [
+        "jwksUri",
+        "issuer",
+        "audience",
+        "tenantId",
+        "requiredScopes",
+        "allowedClientIds"
+      ],
+      "properties": {
+        "jwksUri": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://"
+        },
+        "issuer": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^https://"
+        },
+        "audience": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clockSkewSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300,
+          "default": 0
+        },
+        "tenantId": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "requiredScopes": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "allowedClientIds": {
+          "anyOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "additionalCaFiles": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Endpoint-specific PEM CA files added to JVM default roots; does not change JVM/global trust."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "issuer": {
+                "pattern": "/v2\\.0$"
+              }
+            },
+            "required": [
+              "issuer"
+            ]
+          },
+          "then": {
+            "properties": {
+              "audience": {
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "then": {
+        "required": [
+          "internalTokenTrust"
+        ],
+        "properties": {
+          "internalTokenTrust": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/internalTokenTrust"
+              },
+              {
+                "type": "string",
+                "pattern": "^\\s*\\{"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        },
+        "required": [
+          "enabled"
+        ]
+      },
+      "then": {
+        "required": [
+          "subjectTokenTrust"
+        ],
+        "properties": {
+          "subjectTokenTrust": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/subjectTokenTrust"
+              },
+              {
+                "type": "string",
+                "pattern": "^\\s*\\{"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          },
+          "authorizationToken": {
+            "const": "azure-msal"
+          }
+        },
+        "required": [
+          "enabled",
+          "authorizationToken"
+        ]
+      },
+      "then": {
+        "required": [
+          "apiTokenTrust"
+        ],
+        "properties": {
+          "apiTokenTrust": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/apiTokenTrust"
+              },
+              {
+                "type": "string",
+                "pattern": "^\\s*\\{"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
 }
