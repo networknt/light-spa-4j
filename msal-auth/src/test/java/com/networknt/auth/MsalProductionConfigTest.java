@@ -31,7 +31,7 @@ class MsalProductionConfigTest {
         for (Object scopes : List.of(List.of("access_as_user"), "[\"access_as_user\"]", "access_as_user,extra_scope", "ENV")) {
             Map<String, Object> values = new HashMap<>(Map.of("msal-auth.tenantId", TENANT,
                     "msal-auth.jwksUri", "https://login.microsoftonline.com/keys", "msal-auth.issuer", ISSUER, "msal-auth.audience", AUDIENCE,
-                    "msal-auth.requiredScopes", scopes, "msal-auth.allowedClientIds", CLIENT));
+                    "msal-auth.requiredScopes", scopes, "msal-auth.allowedClientIds", CLIENT, "msal-auth.csrfSigningKeyId", "test", "msal-auth.csrfSigningKeys", "test=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
             boolean environment = "ENV".equals(scopes);
             if (environment) {
                 values.remove("msal-auth.requiredScopes");
@@ -74,7 +74,7 @@ class MsalProductionConfigTest {
 
     private static Map<String, Object> validMap() {
         return new HashMap<>(Map.of("enabled", true, "tenantId", TENANT, "issuer", ISSUER,
-                "audience", AUDIENCE, "jwksUri", "https://login.microsoftonline.com/keys", "requiredScopes", List.of("access_as_user"), "allowedClientIds", List.of(CLIENT)));
+                "audience", AUDIENCE, "jwksUri", "https://login.microsoftonline.com/keys", "requiredScopes", List.of("access_as_user"), "allowedClientIds", List.of(CLIENT), "csrfSigningKeyId", "test", "csrfSigningKeys", "test=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
     }
 
     @Test
@@ -88,7 +88,8 @@ class MsalProductionConfigTest {
 
     @Test
     void disabledHandlerIgnoresPolicySettings() {
-        Map<String, Object> map = new HashMap<>(Map.of("enabled", false, "requiredScopes", 42, "tenantId", 7));
+        Map<String, Object> map = new HashMap<>(Map.of("enabled", false, "requiredScopes", 42, "tenantId", 7,
+                "websocketAllowedOrigins", 42, "browserAllowedOrigins", 42, "csrfSigningKeys", 42));
         MsalAuthConfig config = assertDoesNotThrow(() -> new MsalAuthConfig(map));
         assertFalse(config.isEnabled());
         assertNull(config.getTokenPolicy());
@@ -111,5 +112,40 @@ class MsalProductionConfigTest {
             assertThrows(IllegalArgumentException.class, () -> MsalAuthConfig.validateJwksUri(uri));
         assertThrows(IllegalArgumentException.class, () -> MsalAuthConfig.validateJwksUri(null));
         assertDoesNotThrow(() -> MsalAuthConfig.validateJwksUri("https://login.microsoftonline.com/keys?appid=application"));
+    }
+
+    @Test
+    void enabledHandlerRequiresSigningKeysAndInvalidReloadFailsClosed() {
+        Map<String, Object> invalid = validMap();
+        invalid.remove("csrfSigningKeys");
+        RuntimeException error = assertThrows(IllegalArgumentException.class, () -> MsalAuthConfig.loadSnapshot(invalid));
+        assertTrue(error.getMessage().contains("csrfSigningKeys"));
+        assertSame(error, assertThrows(IllegalArgumentException.class, () -> MsalAuthConfig.loadSnapshot(invalid)));
+        MsalAuthConfig recovered = MsalAuthConfig.loadSnapshot(validMap());
+        String value = recovered.getSessionCsrf().issue("session");
+        assertTrue(recovered.getSessionCsrf().verify(value, "session"));
+
+        Map<String, Object> rotated = validMap();
+        rotated.put("csrfSigningKeyId", "next");
+        rotated.put("csrfSigningKeys", validMap().get("csrfSigningKeys") + ",next=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        MsalAuthConfig overlap = MsalAuthConfig.loadSnapshot(rotated);
+        assertTrue(overlap.getSessionCsrf().verify(value, "session"));
+        assertTrue(overlap.getSessionCsrf().verify(overlap.getSessionCsrf().issue("session"), "session"));
+
+        rotated = new HashMap<>(rotated);
+        rotated.put("csrfSigningKeys", "next=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        MsalAuthConfig next = MsalAuthConfig.loadSnapshot(rotated);
+        assertFalse(next.getSessionCsrf().verify(value, "session"));
+        assertTrue(next.getSessionCsrf().verify(next.getSessionCsrf().issue("session"), "session"));
+    }
+
+    @Test
+    void httpBrowserOriginsCanBeConfiguredWithoutEnablingWebsockets() {
+        Map<String, Object> map = validMap();
+        map.put("browserAllowedOrigins", "HTTPS://PUBLIC.example:443");
+        map.put("websocketAllowedOrigins", List.of());
+        MsalAuthConfig config = new MsalAuthConfig(map);
+        assertEquals(java.util.Set.of("https://public.example"), config.getBrowserAllowedOrigins());
+        assertTrue(config.getWebsocketAllowedOrigins().isEmpty());
     }
 }

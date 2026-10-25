@@ -8,9 +8,19 @@ requiredScopes: []
 allowedClientIds: []
 loginPath: /auth/ms/login
 logoutPath: /auth/ms/logout
-logoutCsrfEnforced: false
+logoutCsrfEnforced: true
 cookieDomain: localhost
 cookiePath: /
 cookieSecure: false
 sessionTimeout: 3600
 cookieSameSite: None
+
+# Exact allowed browser Origins for cookie-authenticated WebSockets (CSV). Empty denies.
+websocketAllowedOrigins: ""
+
+# Provision via secret configuration; no default key. Share across replicas.
+csrfSigningKeyId: ""
+csrfSigningKeys: ""
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ""

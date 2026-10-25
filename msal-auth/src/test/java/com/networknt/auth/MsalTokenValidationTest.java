@@ -91,8 +91,9 @@ class MsalTokenValidationTest {
     private static HttpResponse<String> request(String token, boolean cookie) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(base.resolve(cookie ? "/api" : "/auth/ms/login"));
         if (cookie) {
-            request.header("Cookie", "accessToken=" + token + "; csrf=local-csrf");
-            request.header("X-CSRF-TOKEN", "local-csrf").GET();
+            String csrf = MsalAuthConfig.load().getSessionCsrf().issue(token);
+            request.header("Cookie", "accessToken=" + token + "; csrf=" + csrf);
+            request.header("X-CSRF-TOKEN", csrf).GET();
         } else {
             request.header("Authorization", "Bearer " + token).POST(HttpRequest.BodyPublishers.noBody());
         }

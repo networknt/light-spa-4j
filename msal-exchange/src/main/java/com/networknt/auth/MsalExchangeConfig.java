@@ -1,6 +1,8 @@
 package com.networknt.auth;
 
 import com.networknt.config.Config;
+import com.networknt.config.schema.ArrayField;
+import com.networknt.auth.csrf.Csrf;
 import com.networknt.config.schema.ConfigSchema; // REQUIRED IMPORT
 import com.networknt.config.schema.OutputFormat; // REQUIRED IMPORT
 import com.networknt.config.schema.BooleanField; // REQUIRED IMPORT
@@ -9,6 +11,7 @@ import com.networknt.config.schema.StringField; // REQUIRED IMPORT
 
 import com.networknt.server.ModuleRegistry;
 import java.util.Map;
+import java.util.Set;
 
 // <<< REQUIRED ANNOTATION FOR SCHEMA GENERATION >>>
 /**
@@ -46,6 +49,14 @@ public class MsalExchangeConfig {
     // --- Annotated Fields ---
     // --- Annotated Fields ---
     private final Map<String, Object> mappedConfig;
+    @ArrayField(configFieldName = "websocketAllowedOrigins", externalizedKeyName = "websocketAllowedOrigins", items = String.class,
+            description = "Trusted browser Origins (list or CSV); empty disables cookie-authenticated WebSockets.")
+    private Set<String> websocketAllowedOrigins = Set.of();
+    public Set<String> getWebsocketAllowedOrigins() { return websocketAllowedOrigins; }
+    @ArrayField(configFieldName = "browserAllowedOrigins", externalizedKeyName = "browserAllowedOrigins", items = String.class,
+            description = "Public browser Origins trusted for HTTP recovery/read-only requests, including TLS-terminating proxies.")
+    private Set<String> browserAllowedOrigins = Set.of();
+    public Set<String> getBrowserAllowedOrigins() { return browserAllowedOrigins; }
     private static volatile MsalExchangeConfig instance;
 
     @BooleanField(
@@ -75,10 +86,10 @@ public class MsalExchangeConfig {
     @BooleanField(
             configFieldName = LOGOUT_CSRF_ENFORCED,
             externalizedKeyName = LOGOUT_CSRF_ENFORCED,
-            description = "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
-            defaultValue = "false"
+            description = "Enforce session-bound CSRF validation for logout. False is insecure observation-only migration mode.",
+            defaultValue = "true"
     )
-    boolean logoutCsrfEnforced;
+    boolean logoutCsrfEnforced = true;
 
     @StringField(
             configFieldName = COOKIE_DOMAIN,
@@ -203,6 +214,10 @@ public class MsalExchangeConfig {
 
 
     private void setConfigData() {
+        websocketAllowedOrigins = Csrf.origins(mappedConfig.get("websocketAllowedOrigins"));
+        Set<String> browserOrigins = new java.util.HashSet<>(websocketAllowedOrigins);
+        browserOrigins.addAll(Csrf.origins(mappedConfig.get("browserAllowedOrigins")));
+        browserAllowedOrigins = Set.copyOf(browserOrigins);
         // Load fields using Config utilities, consistent with the framework's internal loading
         Object object = mappedConfig.get(ENABLED);
         if (object != null) enabled = Config.loadBooleanValue(ENABLED, object);

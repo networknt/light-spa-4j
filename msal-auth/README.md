@@ -28,6 +28,9 @@ any Microsoft-signed token. Disabled handlers do not require a policy.
    incompatible tokens must sign in again. Rejected cookie authentication clears
    both cookies; CSRF failures, signing-key lookup failures (unknown `kid` or an
    unreachable JWKS endpoint) and server-side verifier failures keep them.
+5. Provision the required CSRF signing key ring and configure allowed WebSocket
+   Origins using the [CSRF migration guide](../CSRF-MIGRATION.md). Existing unsigned
+   CSRF cookies require re-login. Keep logout CSRF enforcement enabled.
 
 Example `msal-auth.yml` for v2 access tokens (replace all example UUIDs):
 
@@ -44,6 +47,9 @@ allowedClientIds:
 loginPath: /auth/ms/login
 logoutPath: /auth/ms/logout
 logoutCsrfEnforced: true
+csrfSigningKeyId: k202610
+csrfSigningKeys: "k202610=<secret-from-deployment-secret-configuration>"
+websocketAllowedOrigins: "https://app.example.com"
 cookieDomain: app.example.com
 cookiePath: /
 cookieSecure: true

@@ -12,7 +12,8 @@ import com.networknt.security.JwtVerifier;
 import com.networknt.security.SecurityConfig;
 import com.networknt.security.VerificationException;
 import com.networknt.utility.Constants;
-import com.networknt.utility.UuidUtil;
+import com.networknt.status.Status;
+import com.networknt.auth.csrf.Csrf;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
 import io.undertow.server.HttpServerExchange;
@@ -71,7 +72,6 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String SCOPE = "scope";
     private static final String SCP = "scp";
     private static final String ROLE = "role";
-    private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
 
 
     // Two separate JwtVerifier instances ---
@@ -108,6 +108,11 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     @Override
     public void handleRequest(final HttpServerExchange exchange) throws Exception {
         MsalExchangeConfig config = MsalExchangeConfig.load();
+        if (Methods.OPTIONS.equals(exchange.getRequestMethod())) {
+            Handler.next(exchange, next);
+            return;
+        }
+
         String reqPath = exchange.getRequestPath();
         MsalEndpoint endpoint = classifyEndpoint(exchange.getRelativePath(), config);
         if(endpoint != MsalEndpoint.OTHER) {
@@ -149,7 +154,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             }
 
             // --- Perform Token Exchange ---
-            String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
+            String csrf = Csrf.nonce();
             TokenExchangeRequest request = new TokenExchangeRequest();
             request.setSubjectToken(microsoftToken);
             request.setSubjectTokenType("urn:ietf:params:oauth:token-type:jwt");
@@ -183,9 +188,17 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             exchange.setStatusCode(StatusCodes.NO_CONTENT);
             exchange.endExchange();
         } else {
+            Cookie sessionAccess = exchange.getRequestCookie(ACCESS_TOKEN);
+            if ((sessionAccess == null || sessionAccess.getValue() == null || sessionAccess.getValue().isBlank())
+                    && exchange.getRequestCookie(REFRESH_TOKEN) != null) {
+                recoverSession(exchange, config);
+                return;
+            }
+
             // This is the subsequent request handling after the token exchange. Here we verify the JWT in the cookies.
             if(logger.isTraceEnabled()) logger.trace("MsalTokenExchangeHandler is called for subsequent request.");
             boolean hasSessionCookie = exchange.getRequestCookie(ACCESS_TOKEN) != null || exchange.getRequestCookie(REFRESH_TOKEN) != null;
+            String microsoftAccessToken = null;
             if(config.isAzureMsalAuthorization() && hasSessionCookie) {
                 Cookie msalAccessTokenCookie = exchange.getRequestCookie(config.getMsalAccessTokenCookie());
                 if (msalAccessTokenCookie == null || msalAccessTokenCookie.getValue() == null || msalAccessTokenCookie.getValue().trim().length() == 0) {
@@ -194,7 +207,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 }
                 String msalAccessToken = msalAccessTokenCookie.getValue();
                 if(verifyMicrosoftToken(exchange, msalAccessToken, reqPath) == null) return;
-                injectMsalAuthorization(exchange, msalAccessToken);
+                microsoftAccessToken = msalAccessToken;
             }
             String jwt = null;
             Cookie cookie = exchange.getRequestCookie(ACCESS_TOKEN);
@@ -203,60 +216,35 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // verify the jwt with the internal verifier, the token is from the light-oauth token exchange.
                 JwtClaims claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
-                // get csrf token from the header. Return error is it doesn't exist.
-                String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    // Check for csrf in Sec-WebSocket-Protocol header.
-                    // Detect WebSocket handshake by requiring both Sec-WebSocket-Key and
-                    // Sec-WebSocket-Version, which together uniquely identify a WebSocket
-                    // upgrade request. We do not check the Upgrade or Connection headers
-                    // because HTTP/2 strips hop-by-hop headers per RFC 9113 §8.2.2.
-                    String secWebSocketKey = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key");
-                    String secWebSocketVersion = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version");
-                    boolean isWebSocketHandshake = secWebSocketKey != null && secWebSocketVersion != null;
-                    String protocolHeader = isWebSocketHandshake
-                            ? exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol")
-                            : null;
-                    if(protocolHeader != null) {
-                        String[] protocols = protocolHeader.split(",");
-                        for (String p : protocols) {
-                            String trimmed = p.trim();
-                            if (trimmed.startsWith(CSRF_PROTOCOL_PREFIX)) {
-                                headerCsrf = trimmed.substring(CSRF_PROTOCOL_PREFIX.length());
-                                break;
-                            }
-                        }
-                    }
-                }
-                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    Deque<String> csrfDeque = exchange.getQueryParameters().get(Constants.CSRF);
-                    if(csrfDeque != null) headerCsrf = csrfDeque.getFirst();
-                }
-                if(headerCsrf == null || headerCsrf.trim().length() == 0) {
-                    setExchangeStatus(exchange, CSRF_HEADER_MISSING);
-                    return;
-                }
+                String headerCsrf;
+                try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), config.getBrowserAllowedOrigins(), exchange.getRequestCookie(Constants.CSRF) == null ? null : exchange.getRequestCookie(Constants.CSRF).getValue()); }
+                catch (IllegalArgumentException e) { rejectCsrf(exchange, Csrf.code(e)); return; }
                 // verify csrf from jwt token in httpOnly cookie
                 if(jwtCsrf == null || jwtCsrf.trim().length() == 0) {
-                    setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
+                    rejectCsrf(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
-                if(!headerCsrf.equals(jwtCsrf)) {
-                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                if(!Csrf.equal(headerCsrf, jwtCsrf)) {
+                    rejectCsrf(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH);
                     return;
                 }
                 // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
                 // regardless the refreshToken is long term remember me or not. The private message API access repeatedly
                 // per minute will make the session continue until the browser tab is closed.
-                if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000) {
-                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
+                if(claims.getExpirationTime().getValueInMillis() - System.currentTimeMillis() < 90000
+                        && exchange.getRequestCookie(REFRESH_TOKEN) != null) {
+                    jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config, jwtCsrf, jwt, claims.getExpirationTime().getValueInMillis());
+                    // Response completion can be asynchronous on worker threads. Use the explicit
+                    // renewal outcome, not isComplete(), to prevent executing an unaccepted action.
+                    if (jwt == null) return;
+                } else if (claims.getExpirationTime().getValueInMillis() <= System.currentTimeMillis()) {
+                    setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10001", "AUTH_TOKEN_EXPIRED",
+                            "Session expired and no refresh token is available. Sign in again."));
+                    return;
                 }
-            } else {
-                // renew the token and set the cookies
-                jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
-            if(logger.isTraceEnabled()) logger.trace("jwt = " + jwt);
+            if (exchange.isComplete()) return;
+            if (microsoftAccessToken != null) injectMsalAuthorization(exchange, microsoftAccessToken);
             if(jwt != null) injectLightOauthToken(exchange, jwt, config);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
@@ -308,13 +296,20 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private boolean validateLogoutCsrf(HttpServerExchange exchange, MsalExchangeConfig config) {
         if(!hasOwnedSessionCookie(exchange, config)) return true;
 
-        String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-        Cookie cookie = exchange.getRequestCookie(Constants.CSRF);
-        boolean headerMissing = headerCsrf == null || headerCsrf.trim().isEmpty();
-        boolean cookieInvalid = cookie == null || cookie.getValue() == null
-                || !cookie.getValue().equals(headerCsrf);
-        if(!headerMissing && !cookieInvalid) return true;
-
+        String headerCsrf = null;
+        try { headerCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
+        catch (IllegalArgumentException ignored) { }
+        boolean headerMissing = headerCsrf == null;
+        Cookie access = exchange.getRequestCookie(ACCESS_TOKEN);
+        Cookie csrf = exchange.getRequestCookie(Constants.CSRF);
+        String cookieCsrf = csrf == null ? null : csrf.getValue();
+        LogoutBinding.State binding = LogoutBinding.classify(internalJwtVerifier, access == null ? null : access.getValue(), cookieCsrf);
+        if (binding == LogoutBinding.State.USABLE && Csrf.equal(headerCsrf, cookieCsrf)) return true;
+        if (binding == LogoutBinding.State.UNUSABLE && Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) return true;
+        if (binding == LogoutBinding.State.UNKNOWN && config.isLogoutCsrfEnforced()) {
+            sessionUnavailable(exchange);
+            return false;
+        }
         long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
         String failure = headerMissing ? "header_missing" : "cookie_invalid";
         logger.info("event=spa_auth_logout_csrf_would_reject runtime=msal-exchange endpoint=logout " +
@@ -380,21 +375,91 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     }
 
     // --- The following methods can be copied directly or moved to a shared utility class ---
-    private String renewToken(HttpServerExchange exchange, Cookie cookie, MsalExchangeConfig config) throws Exception {
+    private void rejectCsrf(HttpServerExchange exchange, String code) {
+        setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, code, "CSRF_VALIDATION_FAILED",
+                "Missing or invalid session-bound CSRF value or transport"));
+    }
+
+    private void sessionRefreshed(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        exchange.getResponseHeaders().put(new HttpString("X-Session-Refreshed"), "true");
+        setExchangeStatus(exchange, new Status(StatusCodes.CONFLICT, "SPA_SESSION_REFRESHED", "SESSION_REFRESHED",
+                "Session cookies refreshed. Retry explicitly with the new CSRF cookie; the request was not executed."));
+    }
+
+    private void recoverSession(HttpServerExchange exchange, MsalExchangeConfig config) throws Exception {
+        if (!Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) {
+            rejectCsrf(exchange, "ERR10039");
+            return;
+        }
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        RefreshTokenSingleFlight.RefreshResult result;
+        try {
+            result = RefreshTokenSingleFlight.recover(exchange.getRequestCookie(REFRESH_TOKEN).getValue(), logger);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            sessionUnavailable(exchange);
+            return;
+        } catch (Exception e) {
+            // Waiter timeout, network failure and unknown outcomes must preserve the cookie pair.
+            sessionUnavailable(exchange);
+            return;
+        }
+        if (result.isSuccess()) {
+            setCookies(exchange, result.getResponse(), result.getCsrf(), config);
+            if (!exchange.isResponseStarted()) sessionRefreshed(exchange);
+        } else if (result.isInvalidRefreshToken()) {
+            removeCookies(exchange, config);
+            setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
+                    "Refresh token is no longer valid. Sign in again."));
+        } else {
+            sessionUnavailable(exchange);
+        }
+    }
+
+    private void sessionUnavailable(HttpServerExchange exchange) {
+        exchange.getResponseHeaders().put(Headers.CACHE_CONTROL, "no-store");
+        exchange.getResponseHeaders().put(Headers.RETRY_AFTER, "1");
+        setExchangeStatus(exchange, new Status(StatusCodes.SERVICE_UNAVAILABLE, "SPA_SESSION_TEMPORARY_FAILURE", "SESSION_TEMPORARILY_UNAVAILABLE",
+                "Session state could not be determined. Cookies were preserved; retry later."));
+    }
+
+    private String renewalUnavailable(HttpServerExchange exchange, String originalJwt, long expiresAt) {
+        // Recheck after the refresh attempt: it may have outlived the original token.
+        if (System.currentTimeMillis() < expiresAt) return originalJwt;
+        sessionUnavailable(exchange);
+        return null;
+    }
+
+    private String renewToken(HttpServerExchange exchange, Cookie cookie, MsalExchangeConfig config, String verifiedCsrf, String originalJwt, long expiresAt) throws Exception {
         String jwt = null;
         if(cookie != null) {
             String refreshToken = cookie.getValue();
             if(refreshToken != null) {
-                RefreshTokenSingleFlight.RefreshResult result = RefreshTokenSingleFlight.renew(refreshToken, logger);
+                RefreshTokenSingleFlight.RefreshResult result;
+                try {
+                    result = RefreshTokenSingleFlight.renew(refreshToken, verifiedCsrf, logger);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return renewalUnavailable(exchange, originalJwt, expiresAt);
+                } catch (Exception e) {
+                    return renewalUnavailable(exchange, originalJwt, expiresAt);
+                }
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
                     setCookies(exchange, response, result.getCsrf(), config);
+                    if (exchange.isResponseStarted()) return null;
+                    if (!Csrf.equal(verifiedCsrf, result.getCsrf())) {
+                        sessionRefreshed(exchange);
+                        return null;
+                    }
                     jwt = response.getAccessToken();
-                } else {
-                    if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
-                    // remove the cookies to log out the user
+                } else if (result.isInvalidRefreshToken()) {
                     removeCookies(exchange, config);
-                    exchange.endExchange();
+                    setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, "ERR10000", "INVALID_AUTH_TOKEN",
+                            "Refresh token is no longer valid. Sign in again."));
+                } else {
+                    return renewalUnavailable(exchange, originalJwt, expiresAt);
                 }
             }
         }

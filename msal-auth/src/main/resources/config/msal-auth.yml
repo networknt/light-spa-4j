@@ -8,9 +8,19 @@ requiredScopes: ${msal-auth.requiredScopes:}
 allowedClientIds: ${msal-auth.allowedClientIds:}
 loginPath: ${msal-auth.loginPath:/auth/ms/login}
 logoutPath: ${msal-auth.logoutPath:/auth/ms/logout}
-logoutCsrfEnforced: ${msal-auth.logoutCsrfEnforced:false}
+logoutCsrfEnforced: ${msal-auth.logoutCsrfEnforced:true}
 cookieDomain: ${msal-auth.cookieDomain:localhost}
 cookiePath: ${msal-auth.cookiePath:/}
 cookieSecure: ${msal-auth.cookieSecure:false}
 sessionTimeout: ${msal-auth.sessionTimeout:3600}
 cookieSameSite: ${msal-auth.cookieSameSite:None}
+
+# Exact allowed browser Origins for cookie-authenticated WebSockets (CSV). Empty denies.
+websocketAllowedOrigins: ${msal-auth.websocketAllowedOrigins:}
+
+# Provision via secret configuration; no default key. Share across replicas.
+csrfSigningKeyId: ${msal-auth.csrfSigningKeyId:}
+csrfSigningKeys: ${msal-auth.csrfSigningKeys:}
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ${msal-auth.browserAllowedOrigins:}

@@ -3,12 +3,11 @@ package com.networknt.auth;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
 import com.networknt.handler.MiddlewareHandler;
-import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.config.Config;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
-import com.networknt.utility.UuidUtil;
+import com.networknt.auth.csrf.Csrf;
 import io.undertow.Handlers;
 import io.undertow.server.HttpHandler;
 import io.undertow.server.HttpServerExchange;
@@ -25,7 +24,6 @@ import org.jose4j.lang.UnresolvableKeyException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -33,7 +31,6 @@ import java.util.concurrent.atomic.AtomicLong;
 public class MsalAuthHandler implements MiddlewareHandler {
     private static final Logger logger = LoggerFactory.getLogger(MsalAuthHandler.class);
     private static final String ACCESS_TOKEN = "accessToken";
-    private static final String CSRF_PROTOCOL_PREFIX = "csrf.";
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
     private static final String AUTH_TOKEN_EXPIRED = "ERR10001";
     private static final String INVALID_TOKEN_DESCRIPTION = "Invalid Microsoft access token";
@@ -56,6 +53,10 @@ public class MsalAuthHandler implements MiddlewareHandler {
     @Override
     public void handleRequest(HttpServerExchange exchange) throws Exception {
         MsalAuthConfig config = MsalAuthConfig.load();
+        if (Methods.OPTIONS.equals(exchange.getRequestMethod())) {
+            Handler.next(exchange, next);
+            return;
+        }
         if (!config.isEnabled()) {
             Handler.next(exchange, next);
             return;
@@ -97,17 +98,15 @@ public class MsalAuthHandler implements MiddlewareHandler {
         if (accessToken != null && accessToken.getValue() != null && !accessToken.getValue().isBlank()) {
             String token = accessToken.getValue();
             if (verifyMicrosoftToken(exchange, token, config) == null) return;
-            String cookieCsrf = cookieValue(exchange, Constants.CSRF);
-            String requestCsrf = requestCsrf(exchange);
-            if (cookieCsrf == null || requestCsrf == null) {
-                rejectUnauthorized(exchange, CSRF_MISSING, "CSRF_HEADER_MISSING",
-                        "Missing CSRF cookie or request value");
+            String requestCsrf;
+            try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins(), config.getBrowserAllowedOrigins(), cookieValue(exchange, Constants.CSRF)); }
+            catch (IllegalArgumentException e) {
+                rejectUnauthorized(exchange, Csrf.code(e), "CSRF_VALIDATION_FAILED", "Missing or invalid CSRF transport");
                 return;
             }
-            if (!cookieCsrf.equals(requestCsrf)) {
-                logger.warn("MSAL double-submit CSRF validation failed");
-                rejectUnauthorized(exchange, CSRF_MISMATCH, "CSRF_VALIDATION_FAILED",
-                        "CSRF request value does not match cookie");
+            if (!Csrf.equal(cookieValue(exchange, Constants.CSRF), requestCsrf)
+                    || !config.getSessionCsrf().verify(requestCsrf, token)) {
+                rejectUnauthorized(exchange, CSRF_MISMATCH, "CSRF_VALIDATION_FAILED", "Invalid session-bound CSRF value");
                 return;
             }
             exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + token);
@@ -124,7 +123,7 @@ public class MsalAuthHandler implements MiddlewareHandler {
         }
         JwtClaims claims = verifyMicrosoftToken(exchange, token, config);
         if (claims == null) return;
-        String csrf = UuidUtil.uuidToBase64(UuidUtil.getUUID());
+        String csrf = config.getSessionCsrf().issue(token);
         int maxAge = cookieMaxAge(claims, config.getSessionTimeout());
         setCookie(exchange, ACCESS_TOKEN, token, maxAge, true, config);
         setCookie(exchange, Constants.CSRF, csrf, maxAge, false, config);
@@ -188,14 +187,19 @@ public class MsalAuthHandler implements MiddlewareHandler {
 
     private boolean validateLogoutCsrf(HttpServerExchange exchange, MsalAuthConfig config) {
         if (exchange.getRequestCookie(ACCESS_TOKEN) == null && exchange.getRequestCookie(Constants.CSRF) == null) return true;
-        String requestCsrf = requestCsrf(exchange);
-        String cookieCsrf = cookieValue(exchange, Constants.CSRF);
+        String requestCsrf = null;
+        try { requestCsrf = Csrf.request(exchange, config.getWebsocketAllowedOrigins()); }
+        catch (IllegalArgumentException ignored) { }
         boolean missing = requestCsrf == null;
-        if (!missing && requestCsrf.equals(cookieCsrf)) return true;
+        String cookieCsrf = cookieValue(exchange, Constants.CSRF);
+        boolean usableBinding = config.getSessionCsrf().verify(cookieCsrf, cookieValue(exchange, ACCESS_TOKEN));
+        if (usableBinding && Csrf.equal(requestCsrf, cookieCsrf)) return true;
+        if (!usableBinding && Csrf.recoveryAllowed(exchange, config.getBrowserAllowedOrigins())) return true;
         long count = LOGOUT_CSRF_WOULD_REJECT_COUNT.incrementAndGet();
         logger.info("event=spa_auth_logout_csrf_would_reject runtime=msal-auth endpoint=logout " +
                         "failure={} enforced={} count={} counterScope=process reset=process_restart",
                 missing ? "header_missing" : "cookie_invalid", config.isLogoutCsrfEnforced(), count);
+        // Cleanup alone can use browser provenance when old/partial sessions cannot prove a binding.
         if (!config.isLogoutCsrfEnforced()) return true;
         rejectUnauthorized(exchange, missing ? CSRF_MISSING : LOGOUT_CSRF_INVALID,
                 missing ? "CSRF_HEADER_MISSING" : "LOGOUT_CSRF_VALIDATION_FAILED",
@@ -214,24 +218,6 @@ public class MsalAuthHandler implements MiddlewareHandler {
         if (space <= 0 || !"Bearer".equalsIgnoreCase(header.substring(0, space))) return null;
         String token = header.substring(space + 1).trim();
         return token.isEmpty() ? null : token;
-    }
-
-    static String requestCsrf(HttpServerExchange exchange) {
-        String value = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
-        if (value != null && !value.isBlank()) return value;
-        if (exchange.getRequestHeaders().getFirst("Sec-WebSocket-Key") != null &&
-                exchange.getRequestHeaders().getFirst("Sec-WebSocket-Version") != null) {
-            String protocols = exchange.getRequestHeaders().getFirst("Sec-WebSocket-Protocol");
-            if (protocols != null) {
-                for (String protocol : protocols.split(",")) {
-                    String candidate = protocol.trim();
-                    if (candidate.startsWith(CSRF_PROTOCOL_PREFIX))
-                        return candidate.substring(CSRF_PROTOCOL_PREFIX.length());
-                }
-            }
-        }
-        Deque<String> query = exchange.getQueryParameters().get(Constants.CSRF);
-        return query == null || query.isEmpty() ? null : query.getFirst();
     }
 
     static int cookieMaxAge(JwtClaims claims, int sessionTimeout) {

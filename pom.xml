@@ -115,6 +115,7 @@
 
 
     <modules>
+        <module>spa-auth-common</module>
         <module>stateless-auth</module>
         <module>msal-exchange</module>
         <module>msal-auth</module>
@@ -137,6 +138,7 @@
                 <scope>import</scope>
             </dependency>
             <!-- Modules in this project -->
+            <dependency><groupId>com.networknt</groupId><artifactId>spa-auth-common</artifactId><version>${project.version}</version></dependency>
             <dependency>
                 <groupId>com.networknt</groupId>
                 <artifactId>stateless-auth</artifactId>

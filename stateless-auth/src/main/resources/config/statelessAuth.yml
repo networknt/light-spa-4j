@@ -16,8 +16,8 @@ enableHttp2: ${statelessAuth.enableHttp2:false}
 authPath: ${statelessAuth.authPath:/authorization}
 # Request path for the logout handling to remove HttpOnly access-token and other cookies.
 logoutPath: ${statelessAuth.logoutPath:/logout}
-# Enforce double-submit CSRF validation for logout after observe-only qualification.
-logoutCsrfEnforced: ${statelessAuth.logoutCsrfEnforced:false}
+# Enforce session-bound CSRF for logout. False is insecure observation-only migration mode.
+logoutCsrfEnforced: ${statelessAuth.logoutCsrfEnforced:true}
 # Cookie domain which is the original site.
 cookieDomain: ${statelessAuth.cookieDomain:localhost}
 # Cookie path.
@@ -55,3 +55,9 @@ githubPath: ${statelessAuth.githubPath:/github}
 githubClientId: ${statelessAuth.githubClientId:github_client_id}
 # GitHub Client Secret that is retrieved from the environment variable
 githubClientSecret: ${statelessAuth.githubClientSecret:secret}
+
+# Exact allowed browser Origins for cookie-authenticated WebSockets (CSV). Empty denies.
+websocketAllowedOrigins: ${statelessAuth.websocketAllowedOrigins:}
+
+# Explicit public HTTP browser Origins; independent of WebSocket enablement.
+browserAllowedOrigins: ${statelessAuth.browserAllowedOrigins:}

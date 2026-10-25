@@ -3,6 +3,18 @@
   "type" : "object",
   "required" : [ "enabled", "exchangePath", "logoutPath", "cookieDomain", "cookiePath", "cookieSecure", "sessionTimeout", "rememberMeTimeout" ],
   "properties" : {
+        "browserAllowedOrigins": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Public HTTP browser Origins for proxy-safe recovery and read-only requests.",
+            "default": []
+        },
+        "websocketAllowedOrigins": {
+            "type": ["string", "array"],
+            "items": {"type": "string"},
+            "description": "Trusted browser Origins. Empty disables cookie-authenticated WebSockets.",
+            "default": []
+        },
     "enabled" : {
       "type" : "boolean",
       "description" : "Indicates if the MSAL Exchange is enabled.",
@@ -20,8 +32,8 @@
     },
     "logoutCsrfEnforced" : {
       "type" : "boolean",
-      "description" : "Enforce double-submit CSRF validation for logout. Keep false during observe-only qualification.",
-      "default" : false
+      "description": "Enforce session-bound CSRF on logout. False is insecure observation-only migration mode.",
+      "default" : true
     },
     "cookieDomain" : {
       "type" : "string",
