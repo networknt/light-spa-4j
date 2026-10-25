@@ -1,0 +1,109 @@
+name: Jackson 3 source build
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      source_refs:
+        description: JSON map of prerequisite repositories to full commit SHAs
+        type: string
+        default: '{}'
+  push:
+    branches: [master]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: consumer
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+      - name: Resolve prerequisite commits
+        id: prerequisites
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_REFS: ${{ inputs.source_refs || '{}' }}
+        shell: bash
+        run: |
+          jq -e 'type == "object" and all(to_entries[]; (.key | IN("yaml-rule", "http-client", "light-4j")) and (.value | type == "string" and test("^[0-9a-f]{40}$")))' <<< "$SOURCE_REFS"
+          resolve() {
+            local repo=$1 pr=${2:-} ref
+            ref=$(jq -r --arg repo "$repo" '.[$repo] // empty' <<< "$SOURCE_REFS")
+            if [[ -z "$ref" ]]; then
+              if [[ -n "$pr" ]]; then
+                ref=$(gh api "repos/networknt/$repo/pulls/$pr" --jq 'if .merged then .base.ref elif .state == "open" then .head.sha else error("Prerequisite PR closed unmerged") end')
+              else
+                ref=master
+              fi
+            fi
+            ref=$(gh api "repos/networknt/$repo/commits/$ref" --jq .sha)
+            echo "${repo//-/_}=$ref" >> "$GITHUB_OUTPUT"
+          }
+          resolve yaml-rule
+          resolve http-client
+          resolve light-4j 2821
+      - uses: actions/checkout@v4
+        with:
+          repository: networknt/yaml-rule
+          ref: ${{ steps.prerequisites.outputs.yaml_rule }}
+          path: sources/yaml-rule
+      - uses: actions/checkout@v4
+        with:
+          repository: networknt/http-client
+          ref: ${{ steps.prerequisites.outputs.http_client }}
+          path: sources/http-client
+      - uses: actions/checkout@v4
+        with:
+          repository: networknt/light-4j
+          ref: ${{ steps.prerequisites.outputs.light_4j }}
+          path: sources/light-4j
+      - name: Record source commits
+        shell: bash
+        run: |
+          for source in consumer sources/*; do
+            echo "$source $(git -C "$source" rev-parse HEAD)"
+          done | tee source-commits.txt
+          for source in sources/*; do
+            printf '{"key":"%s","value":"%s"}\n' "${source##*/}" "$(git -C "$source" rev-parse HEAD)"
+          done | jq -s from_entries | tee source-refs.json
+      - name: Build prerequisites and run full tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JACKSON3_REUSE_CORE_QUALIFICATION: 1
+          JACKSON3_CORE_QUALIFICATION_REPORT: ${{ github.workspace }}/core-qualification.json
+          JACKSON3_MAVEN_REPO: ${{ runner.temp }}/m2
+          JACKSON3_YAML_RULE: ${{ github.workspace }}/sources/yaml-rule
+          JACKSON3_HTTP_CLIENT: ${{ github.workspace }}/sources/http-client
+        run: |
+          set -euo pipefail
+          bash sources/light-4j/scripts/verify-jackson3-bootstrap.sh 2>&1 | tee source-build.log
+          mvn -f sources/yaml-rule/pom.xml "-Dmaven.repo.local=$JACKSON3_MAVEN_REPO" clean install 2>&1 | tee -a source-build.log
+          mvn -f consumer/pom.xml "-Dmaven.repo.local=$JACKSON3_MAVEN_REPO" clean install 2>&1 | tee -a source-build.log
+      - name: Audit resolved artifacts, including releases and Jackson boundaries
+        env:
+          SOURCE_MAVEN_REPO: ${{ runner.temp }}/m2
+        shell: bash
+        run: |
+          set -euo pipefail
+          mvn -B -Dstyle.color=never -f consumer/pom.xml "-Dmaven.repo.local=$SOURCE_MAVEN_REPO" dependency:tree 2>&1 | tee resolved-dependencies.txt
+          python3 sources/light-4j/scripts/jackson3_artifact_audit.py --repository "$SOURCE_MAVEN_REPO" --tree resolved-dependencies.txt --report artifact-audit.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-build-reports
+          path: |
+            source-build.log
+            source-commits.txt
+            source-refs.json
+            resolved-dependencies.txt
+            artifact-audit.json
+            core-qualification.json
+            **/target/surefire-reports/**
+            **/target/*smoke*.log
