@@ -21,3 +21,5 @@ See [Token trust migration](TOKEN-TRUST-MIGRATION.md) for the isolated signing a
 Framework mapper calls and Google authentication parsing use Jackson 3.2.3 with private strict-duplicate detection. The 2.x branch preserves the previous Jackson 2 line. Build against the migrated light-4j source, including its shared mapper-policy module. Microsoft authentication SDK dependencies may retain private Jackson 2 internals; this migration does not claim to remove those SDK boundaries.
 
 The source-build workflow records prerequisite SHAs, requires a successful full-core run for the exact light-4j SHA, installs its source, and runs the complete SPA reactor suite. It audits all NetworkNT releases and snapshots and reports private Jackson 2 boundaries. Merge light-4j #2821 before this companion migration, and merge this migration before the gateway distribution.
+
+Concurrent renewal fixtures use dedicated request threads so blocking loopback calls cannot starve the Java HTTP client common pool. The full suite is also checked locally with `-DargLine=-Djava.util.concurrent.ForkJoinPool.common.parallelism=3`.
