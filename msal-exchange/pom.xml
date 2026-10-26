@@ -31,6 +31,8 @@
     <description>An auth handler that handles the integration between light-oauth and msal with token exchange.</description>
 
     <dependencies>
+        <dependency><groupId>com.networknt</groupId><artifactId>spa-auth-common</artifactId>
+            <version>${project.version}</version><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.networknt</groupId><artifactId>spa-auth-common</artifactId></dependency>
         <dependency>
             <groupId>com.networknt</groupId>
