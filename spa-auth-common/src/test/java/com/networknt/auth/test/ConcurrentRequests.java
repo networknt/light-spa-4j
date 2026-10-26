@@ -1,5 +1,6 @@
 package com.networknt.auth.test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -14,10 +15,16 @@ public final class ConcurrentRequests {
     private ConcurrentRequests() { }
 
     public static <T> List<T> run(int count, Callable<T> request) throws Exception {
-        try (var executor = Executors.newFixedThreadPool(count)) {
+        return run(count, request, Duration.ofSeconds(10));
+    }
+
+    static <T> List<T> run(int count, Callable<T> request, Duration timeout) throws Exception {
+        var executor = Executors.newFixedThreadPool(count,
+                Thread.ofPlatform().daemon(true).name("concurrent-request-", 0).factory());
+        var requests = new ArrayList<Future<T>>();
+        try {
             var ready = new CountDownLatch(count);
             var start = new CountDownLatch(1);
-            var requests = new ArrayList<Future<T>>();
             for (int i = 0; i < count; i++) requests.add(executor.submit(() -> {
                 ready.countDown();
                 if (!start.await(5, TimeUnit.SECONDS)) throw new TimeoutException("concurrent start timed out");
@@ -29,8 +36,19 @@ public final class ConcurrentRequests {
                 start.countDown();
             }
             var responses = new ArrayList<T>();
-            for (var future : requests) responses.add(future.get(10, TimeUnit.SECONDS));
+            long deadline = System.nanoTime() + timeout.toNanos();
+            for (var future : requests) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) throw new TimeoutException("concurrent requests timed out");
+                responses.add(future.get(remaining, TimeUnit.NANOSECONDS));
+            }
             return responses;
+        } finally {
+            for (var future : requests) future.cancel(true);
+            executor.shutdownNow();
+            // A transport may ignore interruption. Never use ExecutorService.close(),
+            // which could turn the request timeout into an unbounded shutdown wait.
+            executor.awaitTermination(100, TimeUnit.MILLISECONDS);
         }
     }
 }
