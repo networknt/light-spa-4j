@@ -20,7 +20,9 @@ See [Token trust migration](TOKEN-TRUST-MIGRATION.md) for the isolated signing a
 
 Framework mapper calls and Google authentication parsing use Jackson 3.2.3 with private strict-duplicate detection. The 2.x branch preserves the previous Jackson 2 line. Build against the migrated light-4j source, including its shared mapper-policy module. Microsoft authentication SDK dependencies may retain private Jackson 2 internals; this migration does not claim to remove those SDK boundaries.
 
-The source-build workflow records prerequisite SHAs, requires retained successful actual-checkout evidence for light-4j and its matching bootstrap prerequisites, installs its source, and runs the complete SPA reactor suite. It audits all NetworkNT releases and snapshots and reports private Jackson 2 boundaries. Merge light-4j #2821 before this companion migration, and merge this migration before the gateway distribution.
+`.github/workflows/jackson3-source-build.yml` builds the prerequisite source stack in an isolated Maven repository, reuses independently qualified full-core test evidence, and runs the prerequisite and full consumer suites. It pins reviewed policy `f0d2100f972eec765b2b276e7ace38922394f0a6` and candidate `97b2359b92ed3e1d05cac04f2da8760aa954e49d`; yaml-rule/http-client are selected from that verified evidence. Other prerequisites resolve once to full SHAs. The workflow uploads `source-refs.json`, `source-commits.txt`, `core-qualification.json` and Surefire reports. Core registration and workflow-token acceptance are merged in light-4j #2825 and #2826.
+
+The source ledger audits all NetworkNT releases and snapshots and reports private Jackson 2 boundaries. Merge this migration before the gateway distribution.
 
 Concurrent renewal fixtures use dedicated request threads so blocking loopback calls cannot starve the Java HTTP client common pool. The full suite is also checked locally with `-DargLine=-Djava.util.concurrent.ForkJoinPool.common.parallelism=3`.
 
