@@ -1,7 +1,7 @@
 package com.networknt.auth;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.ObjectMapper;
 import com.networknt.client.oauth.*;
 import com.networknt.config.Config;
 import com.networknt.config.JsonMapper;
@@ -24,8 +24,8 @@ import java.util.*;
 public class GoogleAuthHandler extends StatelessAuthHandler implements MiddlewareHandler {
     private static final String NONCE_COOKIE = "__Host-google_signin_nonce_";
     private static final GoogleSignInChallenge CHALLENGES = new GoogleSignInChallenge();
-    private static final ObjectMapper JSON = Config.getInstance().getMapper().copy()
-            .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+    private static final ObjectMapper JSON = Config.getInstance().getMapper().rebuild()
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build();
     @FunctionalInterface interface Verify { JwtClaims verify(String token, String audience, String nonce) throws Exception; }
     @FunctionalInterface interface Resolve { Result<String> resolve(Map<String, Object> identity, String token); }
     private final Verify verifier;

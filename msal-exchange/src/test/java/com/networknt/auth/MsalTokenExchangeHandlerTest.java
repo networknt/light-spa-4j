@@ -761,15 +761,12 @@ public class MsalTokenExchangeHandlerTest {
         String csrf = com.networknt.auth.csrf.Csrf.nonce();
         String jwt = getJwt(30, csrf);
         String cookies = "accessToken=" + jwt + "; csrf=" + csrf + "; refreshToken=concurrent-" + java.util.UUID.randomUUID();
-        var requests = new java.util.ArrayList<java.util.concurrent.CompletableFuture<ClientResponse>>();
-        for (int i = 0; i < 4; i++) requests.add(java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-            try { return sendRequest(Methods.GET, "/api", cookies, csrf); }
-            catch (Exception e) { throw new java.util.concurrent.CompletionException(e); }
-        }));
-        for (var request : requests) {
-            ClientResponse response = request.get(10, TimeUnit.SECONDS);
+        var responses = com.networknt.auth.test.ConcurrentRequests.run(4,
+                () -> sendRequest(Methods.GET, "/api", cookies, csrf));
+        for (ClientResponse response : responses) {
             Assertions.assertEquals(StatusCodes.OK, response.getResponseCode());
             List<String> issued = response.getResponseHeaders().get(Headers.SET_COOKIE);
+            Assertions.assertNotNull(issued, "successful concurrent renewal must issue cookies");
             Assertions.assertTrue(issued.stream().anyMatch(value -> value.startsWith("csrf=" + csrf + ";")));
         }
     }
