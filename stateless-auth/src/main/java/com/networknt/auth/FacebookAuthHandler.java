@@ -45,15 +45,14 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
                 return;
             }
-            FacebookClient fbClient = new DefaultFacebookClient(accessToken, Version.VERSION_26_0);
-            User me = fbClient.fetchObject("me", User.class, Parameter.with("fields", "id,name,email,first_name,last_name,verified"));
+            User me = fetchFacebookUser(accessToken);
             if (me != null) {
                 String email = me.getEmail();
                 String firstName = me.getFirstName();
                 String lastName = me.getLastName();
                 String name = me.getName();
                 String userId = name.replaceAll("\\s+","") + "@fb";
-                Result<String> resultUser = PortalClient.getUserByEmail(email, config.getBootstrapToken());
+                Result<String> resultUser = findPortalUser(email, config.getBootstrapToken());
                 if(resultUser.isSuccess()) {
                     Map<String, Object> map = JsonMapper.string2Map(resultUser.getResult());
                     String id = (String)map.get("userId");
@@ -79,9 +78,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                 if (result.isFailure()) {
                     Status status = result.getError();
                     // we don't have access token in the response. Must be a status object.
-                    exchange.setStatusCode(status.getStatusCode());
-                    exchange.getResponseSender().send(status.toString());
-                    logger.error("OAuth provider request failed; HTTP status {}", status.getStatusCode());
+                    ProviderDiagnostics.reject(exchange, status, logger);
                     return;
                 }
                 List scopes = setCookies(exchange, result.getResult(), csrf, config);
@@ -103,6 +100,14 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                 return;
             }
         }
+    }
+
+    protected User fetchFacebookUser(String accessToken) {
+        FacebookClient client = new DefaultFacebookClient(accessToken, Version.VERSION_26_0);
+        return client.fetchObject("me", User.class, Parameter.with("fields", "id,name,email,first_name,last_name,verified"));
+    }
+    protected Result<String> findPortalUser(String email, String token) {
+        return PortalClient.getUserByEmail(email, token);
     }
 
 }

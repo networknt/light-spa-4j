@@ -148,9 +148,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if (result.isFailure()) {
                 Status status = result.getError();
                 // we don't have access token in the response. Must be a status object.
-                exchange.setStatusCode(status.getStatusCode());
-                exchange.getResponseSender().send(status.toString());
-                logger.error("OAuth provider request failed; HTTP status {}", status.getStatusCode());
+                ProviderDiagnostics.reject(exchange, status, logger);
                 return;
             }
             List scopes = setCookies(exchange, result.getResult(), csrf, config);

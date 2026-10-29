@@ -77,6 +77,8 @@ public class StatelessAuthHandlerTest {
 
     static Undertow authServer = null;
     static Undertow tokenServer = null;
+    static volatile boolean failProviderWithCanary;
+    static volatile boolean useLocalFacebook;
     static volatile String responseRefreshCanary;
     // this is to simulate the randomly generated csrfToken for testing only to ensure
     // both header csrf and jwt csrf tokens are the same.
@@ -118,7 +120,17 @@ public class StatelessAuthHandlerTest {
             statelessAuthHandler.setNext(next);
             GoogleAuthHandler googleAuthHandler = new GoogleAuthHandler();
             googleAuthHandler.setNext(next);
-            FacebookAuthHandler facebookAuthHandler = new FacebookAuthHandler();
+            FacebookAuthHandler facebookAuthHandler = new FacebookAuthHandler() {
+                @Override protected com.restfb.types.User fetchFacebookUser(String token) {
+                    if (!useLocalFacebook) return super.fetchFacebookUser(token);
+                    return new com.restfb.DefaultJsonMapper().toJavaObject(
+                            "{\"name\":\"Fixture User\",\"email\":\"fixture@example.test\"}", com.restfb.types.User.class);
+                }
+                @Override protected com.networknt.monad.Result<String> findPortalUser(String email, String token) {
+                    if (!useLocalFacebook) return super.findPortalUser(email, token);
+                    return com.networknt.monad.Success.of("{\"userId\":\"FixtureUser@fb\"}");
+                }
+            };
             facebookAuthHandler.setNext(next);
             GithubAuthHandler githubAuthHandler = new GithubAuthHandler();
             githubAuthHandler.setNext(next);
@@ -285,6 +297,12 @@ public class StatelessAuthHandlerTest {
         } catch (Exception e) {
             logger.error("Failed to parse POST body for CSRF value in mock token server", e);
         }
+        if (failProviderWithCanary) {
+            exchange.setStatusCode(429);
+            exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
+            exchange.getResponseSender().send("{\"statusCode\":429,\"code\":\"ERR10014\",\"message\":\"provider-status-secret-canary\",\"description\":\"provider-status-secret-canary\"}");
+            return;
+        }
         // Create a token with 600 second expiry (matches the JWT exp claim).
         try {
             Map<String, Object> map = new HashMap<>();
@@ -293,9 +311,9 @@ public class StatelessAuthHandlerTest {
             if (invalidIssuedPolicy) issued.setAudience("wrong-provider-audience");
             String token = getJwt(issued, (nextRotatingRefresh == null && !issueUnpublishedKey) ? "Tj_l_tIBTginOtQbL0Pv5w" : "rotated-new");
             map.put("access_token", token);
-            if (responseRefreshCanary != null) map.put("refresh_token", responseRefreshCanary);
             map.put("token_type", "Bearer");
-            map.put("refresh_token", nextRotatingRefresh == null ? "fixture-refresh" : nextRotatingRefresh);
+            map.put("refresh_token", responseRefreshCanary != null ? responseRefreshCanary :
+                    (nextRotatingRefresh == null ? "fixture-refresh" : nextRotatingRefresh));
             map.put("expires_in", 600);
             exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
             exchange.getResponseSender().send(ByteBuffer.wrap(
@@ -448,6 +466,37 @@ public class StatelessAuthHandlerTest {
     }
 
     @Test
+    public void callbackAndFacebookProviderFailuresAreRedactedInResponsesAndAllLogs() throws Exception {
+        failProviderWithCanary = true; useLocalFacebook = true;
+        try (PrivacyLogs logs = new PrivacyLogs(false, "provider-status-secret-canary", "facebook-access-secret-canary");
+             var http = java.net.http.HttpClient.newBuilder().sslContext(
+                     createSSLContext(loadKeyStore("client.keystore"), loadKeyStore("client.truststore"), true)).build()) {
+            for (String path : java.util.List.of("/authorization?code=provider-error", "/facebook?accessToken=facebook-access-secret-canary")) {
+                var request = java.net.http.HttpRequest.newBuilder(URI.create("https://localhost:7080" + path))
+                        .timeout(java.time.Duration.ofSeconds(10)).GET().build();
+                var response = http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                Assertions.assertEquals(429, response.statusCode());
+                logs.text(response.body());
+                var expected = new com.networknt.status.Status("ERR10014", "OAuth provider request failed"); expected.setStatusCode(429);
+                Assertions.assertEquals(Config.getInstance().getMapper().readTree(expected.toString()),
+                        Config.getInstance().getMapper().readTree(response.body()));
+            }
+            logs.awaitMessage("OAuth provider request failed; HTTP status 429");
+        } finally { failProviderWithCanary = false; useLocalFacebook = false; }
+    }
+
+    @Test
+    public void githubCodeDoesNotReachAnyTraceLogger() throws Exception {
+        try (PrivacyLogs logs = new PrivacyLogs(false, "github-code-secret-canary");
+             var http = java.net.http.HttpClient.newBuilder().sslContext(
+                     createSSLContext(loadKeyStore("client.keystore"), loadKeyStore("client.truststore"), true)).build()) {
+            var request = java.net.http.HttpRequest.newBuilder(URI.create("https://localhost:7080/github?code=github-code-secret-canary"))
+                    .timeout(java.time.Duration.ofSeconds(10)).GET().build();
+            Assertions.assertEquals(200, http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString()).statusCode());
+        }
+    }
+
+    @Test
     public void callbackCodeAndTokenResultStayOutOfTraceLogs() throws Exception {
         var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(StatelessAuthHandler.class);
         var previous = logger.getLevel();
@@ -462,6 +511,8 @@ public class StatelessAuthHandlerTest {
                     .timeout(java.time.Duration.ofSeconds(10)).GET().build();
             var response = http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
             Assertions.assertEquals(200, response.statusCode());
+            Assertions.assertTrue(response.headers().allValues("Set-Cookie").stream().anyMatch(value ->
+                    value.startsWith("refreshToken=" + responseRefreshCanary + ";")), "Canary must reach the handler and its cookie response");
             for (var event : logs.list) {
                 for (String marker : java.util.List.of("callback-code-secret-canary", "callback-state-secret-canary", "callback-refresh-secret-canary")) {
                     Assertions.assertFalse(event.getFormattedMessage().contains(marker), "Callback secret leaked in log");
