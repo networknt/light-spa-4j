@@ -48,7 +48,7 @@ public class PortalClient {
 
             commandConnection = (ClientConnection) tokenCommandConnection.getRawConnection();
         } catch (Exception e) {
-            logger.error("Exception:", e);
+            logger.error("Portal provider request failed: {}", e.getClass().getSimpleName());
         }
     }
 
@@ -60,7 +60,7 @@ public class PortalClient {
 
             queryConnection = (ClientConnection) tokenQueryConnection.getRawConnection();
         } catch (Exception e) {
-            logger.error("Exception:", e);
+            logger.error("Portal provider request failed: {}", e.getClass().getSimpleName());
         }
     }
 
@@ -93,8 +93,8 @@ public class PortalClient {
                 result = Failure.of(status);
             } else result = Success.of(body);
         } catch (Exception e) {
-            logger.error("Exception:", e);
-            Status status = new Status(GENERIC_EXCEPTION, e.getMessage());
+            logger.error("Portal provider request failed: {}", e.getClass().getSimpleName());
+            Status status = new Status(GENERIC_EXCEPTION, e.getClass().getSimpleName());
             result = Failure.of(status);
         }
         return result;
@@ -127,8 +127,8 @@ public class PortalClient {
                 result = Failure.of(status);
             } else result = Success.of(body);
         } catch (Exception e) {
-            logger.error("Exception:", e);
-            Status status = new Status(GENERIC_EXCEPTION, e.getMessage());
+            logger.error("Portal provider request failed: {}", e.getClass().getSimpleName());
+            Status status = new Status(GENERIC_EXCEPTION, e.getClass().getSimpleName());
             result = Failure.of(status);
         }
         return result;
@@ -149,7 +149,6 @@ public class PortalClient {
         commandMap.put("version", "0.1.0");
         commandMap.put("data", userMap);
         String command = JsonMapper.toJson(commandMap);
-        if(logger.isTraceEnabled()) logger.trace("command = " + command);
         return callCommandWithToken(command, token);
     }
 
