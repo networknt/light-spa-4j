@@ -49,6 +49,7 @@ public class MsalTokenExchangeHandlerTest {
 
     static Undertow authServer = null;
     static Undertow tokenServer = null;
+    static volatile boolean rejectIssuedToken;
     // this is to simulate the randomly generated csrfToken for testing only to ensure
     // both header csrf and jwt csrf tokens are the same.
     static String csrfToken = "UniqueCsrfToken";
@@ -157,7 +158,7 @@ public class MsalTokenExchangeHandlerTest {
         try {
             Map<String, Object> map = new HashMap<>();
             String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
-            map.put("access_token", token);
+            map.put("access_token", rejectIssuedToken ? "a28-invalid-issued-token" : token);
             map.put("token_type", "Bearer");
             map.put("refresh_token", "refresh_token_value");
             map.put("expires_in", 600);
@@ -183,6 +184,40 @@ public class MsalTokenExchangeHandlerTest {
                 exchange.endExchange();
             }
         };
+    }
+
+    @Test
+    public void invalidIssuedTokenStopsActualExchangeCallback() throws Exception {
+        var field = MsalTokenExchangeHandler.class.getDeclaredField("msalJwtVerifier");
+        field.setAccessible(true);
+        Object previous = field.get(null);
+        field.set(null, new com.networknt.security.JwtVerifier(
+                com.networknt.security.SecurityConfig.load("security-a28")) {
+            @Override public org.jose4j.jwt.JwtClaims verifyJwt(String jwt, boolean ignoreExpiry,
+                    boolean token, String prefix, String path, java.util.List<String> services) {
+                // The upstream Microsoft trust boundary is local to this callback test.
+                var claims = new org.jose4j.jwt.JwtClaims();
+                claims.setExpirationTimeMinutesInTheFuture(30);
+                return claims;
+            }
+        });
+        rejectIssuedToken = true;
+        try (var http = java.net.http.HttpClient.newBuilder().sslContext(
+                createSSLContext(loadKeyStore("client.keystore"), loadKeyStore("client.truststore"), true))
+                .connectTimeout(java.time.Duration.ofSeconds(3)).build()) {
+            var request = java.net.http.HttpRequest.newBuilder(URI.create("https://localhost:7080/auth/ms/exchange"))
+                    .timeout(java.time.Duration.ofSeconds(10)).header("Authorization", "Bearer a28-local-provider-token")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.noBody()).build();
+            var response = http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            Assertions.assertEquals(401, response.statusCode());
+            var expected = new com.networknt.status.Status("ERR10000");
+            Assertions.assertEquals(Config.getInstance().getMapper().readTree(expected.toString()),
+                    Config.getInstance().getMapper().readTree(response.body()));
+            Assertions.assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+        } finally {
+            rejectIssuedToken = false;
+            field.set(null, previous);
+        }
     }
 
     @Test

@@ -2,6 +2,7 @@ package com.networknt.auth;
 
 import com.networknt.client.oauth.*;
 import com.networknt.config.Config;
+import com.networknt.exception.ExpiredTokenException;
 import com.networknt.config.ConfigException;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
@@ -48,6 +49,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
     private static final String JWT_BEARER_TOKEN_MISSING = "ERR11647"; // New error code
     private static final String TOKEN_EXCHANGE_FAILED = "ERR11648"; // New error code
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
+    private static final String AUTH_TOKEN_EXPIRED = "ERR10001";
     private static final String CSRF_HEADER_MISSING = "ERR10036";
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
@@ -164,6 +166,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
             // --- The setCookies logic is identical ---
             List<String> scopes = setCookies(exchange, result.getResult(), csrf, config);
+            if (exchange.isComplete() || exchange.getStatusCode() >= 400) return;
             if(msalAccessToken != null) {
                 setMsalAccessTokenCookie(exchange, msalAccessToken, msalAccessTokenMaxAge, config);
             }
@@ -201,7 +204,20 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             if(cookie != null) {
                 jwt = cookie.getValue();
                 // verify the jwt with the internal verifier, the token is from the light-oauth token exchange.
-                JwtClaims claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
+                JwtClaims claims;
+                try {
+                    claims = internalJwtVerifier.verifyJwt(jwt, securityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
+                } catch (ExpiredTokenException ignored) {
+                    setExchangeStatus(exchange, AUTH_TOKEN_EXPIRED);
+                    return;
+                } catch (InvalidJwtException ignored) {
+                    setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
+                    return;
+                } catch (VerificationException failure) {
+                    logger.error("Session token key resolution failed: {}", failure.getClass().getSimpleName());
+                    // Retain the existing server-failure outcome without exposing resolver details.
+                    throw new VerificationException("Session token verification failed.");
+                }
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
@@ -241,9 +257,8 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
                 if(!headerCsrf.equals(jwtCsrf)) {
-                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, "[redacted]", "[redacted]");
                     return;
                 }
                 // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
@@ -256,7 +271,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 // renew the token and set the cookies
                 jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
-            if(logger.isTraceEnabled()) logger.trace("jwt = " + jwt);
+            if (exchange.isComplete() || exchange.getStatusCode() >= 400) return;
             if(jwt != null) injectLightOauthToken(exchange, jwt, config);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
@@ -360,9 +375,14 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             // The second provider will do its own validation and claim mapping.
             // Set skipAudienceVerification to true if the 'aud' doesn't match this BFF's client ID.
             return msalJwtVerifier.verifyJwt(microsoftToken, msalSecurityConfig.isIgnoreJwtExpiry(), true, null, reqPath, null);
-        } catch (InvalidJwtException | VerificationException e) {
-            logger.error("Microsoft token validation failed.", e);
-            setExchangeStatus(exchange, INVALID_AUTH_TOKEN, e.getMessage());
+        } catch (ExpiredTokenException ignored) {
+            setExchangeStatus(exchange, AUTH_TOKEN_EXPIRED);
+            return null;
+        } catch (VerificationException failure) {
+            logger.error("Microsoft token key resolution failed: {}", failure.getClass().getSimpleName());
+            throw new VerificationException("Microsoft token verification failed.");
+        } catch (InvalidJwtException ignored) {
+            setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
             return null;
         }
     }
@@ -389,6 +409,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
                     setCookies(exchange, response, result.getCsrf(), config);
+                    if (exchange.isComplete() || exchange.getStatusCode() >= 400) return null;
                     jwt = response.getAccessToken();
                 } else {
                     if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
@@ -481,8 +502,7 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
             scopes = claims.getStringListClaimValue(SCP);
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
-        } catch (InvalidJwtException e) {
-            logger.error("Exception: ", e);
+        } catch (InvalidJwtException ignored) {
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
             return null;
         }

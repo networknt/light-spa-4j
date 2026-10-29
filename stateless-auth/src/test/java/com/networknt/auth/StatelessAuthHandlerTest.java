@@ -77,6 +77,7 @@ public class StatelessAuthHandlerTest {
 
     static Undertow authServer = null;
     static Undertow tokenServer = null;
+    static volatile boolean rejectIssuedToken;
     // this is to simulate the randomly generated csrfToken for testing only to ensure
     // both header csrf and jwt csrf tokens are the same.
     static String csrfToken = "UniqueCsrfToken";
@@ -202,7 +203,7 @@ public class StatelessAuthHandlerTest {
         try {
             Map<String, Object> map = new HashMap<>();
             String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
-            map.put("access_token", token);
+            map.put("access_token", rejectIssuedToken ? "a28-invalid-issued-token" : token);
             map.put("token_type", "Bearer");
             map.put("expires_in", 600);
             exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
@@ -225,6 +226,23 @@ public class StatelessAuthHandlerTest {
                 exchange.endExchange();
             }
         };
+    }
+
+    @Test
+    public void invalidIssuedTokenStopsActualAuthorizationCallback() throws Exception {
+        rejectIssuedToken = true;
+        try (var http = java.net.http.HttpClient.newBuilder().sslContext(
+                createSSLContext(loadKeyStore("client.keystore"), loadKeyStore("client.truststore"), true))
+                .connectTimeout(java.time.Duration.ofSeconds(3)).build()) {
+            var request = java.net.http.HttpRequest.newBuilder(URI.create("https://localhost:7080/authorization?code=abc"))
+                    .timeout(java.time.Duration.ofSeconds(10)).GET().build();
+            var response = http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            Assertions.assertEquals(401, response.statusCode());
+            var expected = new com.networknt.status.Status("ERR10000");
+            Assertions.assertEquals(Config.getInstance().getMapper().readTree(expected.toString()),
+                    Config.getInstance().getMapper().readTree(response.body()));
+            Assertions.assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
+        } finally { rejectIssuedToken = false; }
     }
 
     @Test

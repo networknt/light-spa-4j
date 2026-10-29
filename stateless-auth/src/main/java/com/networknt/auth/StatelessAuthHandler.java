@@ -16,6 +16,7 @@
 
 package com.networknt.auth;
 
+import com.networknt.exception.ExpiredTokenException;
 import com.networknt.client.oauth.*;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
@@ -23,6 +24,7 @@ import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
+import com.networknt.security.VerificationException;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
@@ -89,6 +91,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
     private static final String AUTHORIZATION_CODE_MISSING = "ERR10035";
     private static final String JWT_NOT_FOUND_IN_COOKIES = "ERR10040";
     private static final String INVALID_AUTH_TOKEN = "ERR10000";
+    private static final String AUTH_TOKEN_EXPIRED = "ERR10001";
     private static final String CSRF_HEADER_MISSING = "ERR10036";
     private static final String CSRF_TOKEN_MISSING_IN_JWT = "ERR10038";
     private static final String HEADER_CSRF_JWT_CSRF_NOT_MATCH = "ERR10039";
@@ -137,7 +140,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             String code = codeDeque == null ? null : codeDeque.getFirst();
             Deque<String> stateDeque = exchange.getQueryParameters().get(STATE);
             String state = stateDeque == null ? null : stateDeque.getFirst();
-            if (logger.isDebugEnabled()) logger.debug("code = {} state = {}", code, state);
             // check if code is in the query parameter
             if (code == null || code.trim().isEmpty()) {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
@@ -148,7 +150,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             ((AuthorizationCodeRequest) request).setAuthCode(code);
             request.setCsrf(csrf);
             Result<TokenResponse> result = OauthHelper.getTokenResult(request);
-            if(logger.isDebugEnabled()) logger.debug("result = {}", result);
             if (result.isFailure()) {
                 Status status = result.getError();
                 // we don't have access token in the response. Must be a status object.
@@ -158,6 +159,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 return;
             }
             List scopes = setCookies(exchange, result.getResult(), csrf, config);
+            if (exchange.isComplete() || exchange.getStatusCode() >= 400) return;
             if(logger.isDebugEnabled()) logger.debug("scopes = {}", scopes);
             if (config.getRedirectUri() != null && !config.getRedirectUri().isEmpty()) {
                 exchange.setStatusCode(StatusCodes.OK);
@@ -185,7 +187,20 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if(cookie != null) {
                 jwt = cookie.getValue();
                 // verify the jwt without caring about expiration and compare csrf token
-                JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
+                JwtClaims claims;
+                try {
+                    claims = jwtVerifier.verifyJwt(jwt, true, true);
+                } catch (ExpiredTokenException ignored) {
+                    setExchangeStatus(exchange, AUTH_TOKEN_EXPIRED);
+                    return;
+                } catch (InvalidJwtException ignored) {
+                    setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
+                    return;
+                } catch (VerificationException failure) {
+                    logger.error("Session token key resolution failed: {}", failure.getClass().getSimpleName());
+                    // Retain the existing server-failure outcome without exposing resolver details.
+                    throw new VerificationException("Session token verification failed.");
+                }
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
@@ -225,9 +240,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
                 if(!headerCsrf.equals(jwtCsrf)) {
-                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, "[redacted]", "[redacted]");
                     return;
                 }
                 // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
@@ -241,7 +255,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
 
-            if(logger.isDebugEnabled()) logger.debug("jwt = {}", jwt);
+            if (exchange.isComplete() || exchange.getStatusCode() >= 400) return;
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
@@ -343,6 +357,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 if(result.isSuccess()) {
                     TokenResponse response = result.getResponse();
                     setCookies(exchange, response, result.getCsrf(), config);
+                    if (exchange.isComplete() || exchange.getStatusCode() >= 400) return null;
                     jwt = response.getAccessToken();
                 } else {
                     if(logger.isDebugEnabled()) logger.debug("Failed to get the access token from refresh token with error: {}", result.getError());
@@ -406,8 +421,7 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             scopes = claims.getStringListClaimValue(SCP);
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
-        } catch (InvalidJwtException e) {
-            logger.error("Exception: ", e);
+        } catch (InvalidJwtException ignored) {
             setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
             return null;
         }
