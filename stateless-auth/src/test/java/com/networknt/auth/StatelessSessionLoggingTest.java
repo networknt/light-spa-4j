@@ -59,31 +59,40 @@ class StatelessSessionLoggingTest {
     }
     @Test void mismatchedSubmittedCsrfIsNotReflectedOrLogged() throws Exception {
         probe.watch.add("a28-header-csrf-canary");
-        assertEquals(401, probe.request(token(CSRF), "a28-header-csrf-canary", "").statusCode());
+        assertError(probe.request(token(CSRF), "a28-header-csrf-canary", ""), "ERR10039");
     }
     @Test void decodedQueryControlCharactersCannotForgeTheCsrfDiagnostic() throws Exception {
         String input = "a28-query-csrf-canary\r\nforged-line=1";
         probe.watch.add("a28-query-csrf-canary");
-        assertEquals(401, probe.request(token(CSRF), null,
-                "?csrf=" + URLEncoder.encode(input, StandardCharsets.UTF_8)).statusCode());
+        assertError(probe.request(token(CSRF), null,
+                "?csrf=" + URLEncoder.encode(input, StandardCharsets.UTF_8)), "ERR10039");
     }
     @Test void signedClaimControlCharactersAreNotReflectedOrLogged() throws Exception {
         String claim = "a28-claim-csrf-canary\r\nforged-line=1";
         probe.watch.add("a28-claim-csrf-canary");
-        assertEquals(401, probe.request(token(claim), CSRF, "").statusCode());
+        assertError(probe.request(token(claim), CSRF, ""), "ERR10039");
     }
     @Test void malformedAndTamperedCookieTokensAreRejectedWithoutRawThrowableLogs() throws Exception {
-        assertEquals(401, probe.request("a28-malformed-token-canary", CSRF, "").statusCode());
+        assertError(probe.request("a28-malformed-token-canary", CSRF, ""), "ERR10000");
         String valid = token(CSRF);
         int signature = valid.lastIndexOf('.') + 1;
         String tampered = valid.substring(0, signature) + (valid.charAt(signature) == 'A' ? 'B' : 'A')
                 + valid.substring(signature + 1);
-        assertEquals(401, probe.request(tampered, CSRF, "").statusCode());
+        assertError(probe.request(tampered, CSRF, ""), "ERR10000");
     }
     @Test void invalidIssuedTokenCannotReachCookieIssuanceLogs() throws Exception {
         probe.issuedToken = "a28-issued-token-canary\r\nforged-line=1";
         probe.watch.add("a28-issued-token-canary");
-        assertEquals(401, probe.request(null, null, "/issued").statusCode());
+        assertError(probe.request(null, null, "/issued"), "ERR10000");
+    }
+
+    private static void assertError(HttpResponse<String> response, String code) {
+        assertEquals(401, response.statusCode());
+        Map<?, ?> body = com.networknt.config.JsonMapper.fromJson(response.body(), Map.class);
+        assertEquals(code, body.get("code"));
+        assertEquals(code.equals("ERR10039") ? "CSRF_VALIDATION_FAILED" : "INVALID_AUTH_TOKEN", body.get("message"));
+        assertEquals(code.equals("ERR10039") ? "Missing or invalid session-bound CSRF value or transport"
+                : "Token failed the configured signing or application policy.", body.get("description"));
     }
 
     private String token(String csrf) throws Exception {
@@ -124,8 +133,8 @@ class StatelessSessionLoggingTest {
             Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
             Level oldRoot = root.getLevel();
             restore.add(() -> root.setLevel(oldRoot));
-            root.setLevel(Level.WARN);
-            for (String name : new String[]{StatelessAuthHandler.class.getName(), "com.networknt.handler.LightHttpHandler"}) {
+            root.setLevel(Level.TRACE);
+            for (String name : new String[]{"com.networknt", "org.jose4j", "io.undertow"}) {
                 Logger logger = (Logger) LoggerFactory.getLogger(name);
                 Level level = logger.getLevel();
                 restore.add(() -> logger.setLevel(level));
