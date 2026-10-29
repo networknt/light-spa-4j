@@ -49,6 +49,7 @@ public class MsalTokenExchangeHandlerTest {
 
     static Undertow authServer = null;
     static Undertow tokenServer = null;
+    static volatile boolean failProviderWithCanary;
     static volatile boolean rejectIssuedToken;
     // this is to simulate the randomly generated csrfToken for testing only to ensure
     // both header csrf and jwt csrf tokens are the same.
@@ -154,6 +155,12 @@ public class MsalTokenExchangeHandlerTest {
         } catch (Exception e) {
             logger.error("Failed to parse POST body for CSRF value in mock token server", e);
         }
+        if (failProviderWithCanary) {
+            exchange.setStatusCode(429);
+            exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
+            exchange.getResponseSender().send("{\"statusCode\":429,\"code\":\"ERR10014\",\"message\":\"provider-status-secret-canary\",\"description\":\"provider-status-secret-canary\"}");
+            return;
+        }
         // Create a token with 600 second expiry (matches the JWT exp claim).
         try {
             Map<String, Object> map = new HashMap<>();
@@ -184,6 +191,32 @@ public class MsalTokenExchangeHandlerTest {
                 exchange.endExchange();
             }
         };
+    }
+
+    @Test
+    public void tokenExchangeFailureHasFixedResponseAndSafeDiagnostic() throws Exception {
+        var field = MsalTokenExchangeHandler.class.getDeclaredField("msalJwtVerifier"); field.setAccessible(true);
+        Object previous = field.get(null);
+        field.set(null, new com.networknt.security.JwtVerifier(com.networknt.security.SecurityConfig.load("security-a28")) {
+            @Override public org.jose4j.jwt.JwtClaims verifyJwt(String jwt, boolean ignoreExpiry,
+                    boolean token, String prefix, String path, java.util.List<String> services) {
+                var claims = new org.jose4j.jwt.JwtClaims(); claims.setExpirationTimeMinutesInTheFuture(30); return claims;
+            }
+        });
+        failProviderWithCanary = true;
+        try (PrivacyLogs logs = new PrivacyLogs(false, "provider-status-secret-canary");
+             var http = java.net.http.HttpClient.newBuilder().sslContext(
+                     createSSLContext(loadKeyStore("client.keystore"), loadKeyStore("client.truststore"), true)).build()) {
+            var request = java.net.http.HttpRequest.newBuilder(URI.create("https://localhost:7080/auth/ms/exchange"))
+                    .timeout(java.time.Duration.ofSeconds(10)).header("Authorization", "Bearer " + "local-provider-token")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.noBody()).build();
+            var response = http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            var expected = new com.networknt.status.Status("ERR11648", "OAuth provider rejected the token exchange");
+            Assertions.assertEquals(expected.getStatusCode(), response.statusCode()); logs.text(response.body());
+            Assertions.assertEquals(Config.getInstance().getMapper().readTree(expected.toString()),
+                    Config.getInstance().getMapper().readTree(response.body()));
+            logs.awaitMessage("Token exchange failed; HTTP status 429");
+        } finally { failProviderWithCanary = false; field.set(null, previous); }
     }
 
     @Test
