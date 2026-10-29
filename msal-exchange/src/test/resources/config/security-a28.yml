@@ -1,0 +1,6 @@
+enableJwtCache: false
+bootstrapFromKeyService: false
+jwt:
+  keyResolver: JsonWebKeySet
+  clockSkewInSeconds: 0
+  certificate: {}

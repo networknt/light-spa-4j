@@ -16,6 +16,7 @@
 
 package com.networknt.auth;
 
+import com.networknt.exception.ExpiredTokenException;
 import com.networknt.client.oauth.*;
 import com.networknt.config.JsonMapper;
 import com.networknt.handler.Handler;
@@ -23,6 +24,7 @@ import com.networknt.handler.MiddlewareHandler;
 import com.networknt.httpstring.HttpStringConstants;
 import com.networknt.monad.Result;
 import com.networknt.security.JwtVerifier;
+import com.networknt.security.VerificationException;
 import com.networknt.security.SecurityConfig;
 import com.networknt.status.Status;
 import com.networknt.utility.Constants;
@@ -185,7 +187,16 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             if(cookie != null) {
                 jwt = cookie.getValue();
                 // verify the jwt without caring about expiration and compare csrf token
-                JwtClaims claims = jwtVerifier.verifyJwt(jwt, true, true);
+                JwtClaims claims;
+                try {
+                    claims = jwtVerifier.verifyJwt(jwt, true, true);
+                } catch (InvalidJwtException | ExpiredTokenException ignored) {
+                    rejectInvalidToken(exchange);
+                    return;
+                } catch (VerificationException ignored) {
+                    // Retain the existing server-failure outcome without exposing resolver details.
+                    throw new VerificationException("Session token verification failed.");
+                }
                 String jwtCsrf = claims.getStringClaimValue(Constants.CSRF);
                 // get csrf token from the header. Return error is it doesn't exist.
                 String headerCsrf = exchange.getRequestHeaders().getFirst(HttpStringConstants.CSRF_TOKEN);
@@ -225,9 +236,10 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                     setExchangeStatus(exchange, CSRF_TOKEN_MISSING_IN_JWT);
                     return;
                 }
-                if(logger.isDebugEnabled()) logger.debug("headerCsrf = {} jwtCsrf = {}", headerCsrf, jwtCsrf);
                 if(!headerCsrf.equals(jwtCsrf)) {
-                    setExchangeStatus(exchange, HEADER_CSRF_JWT_CSRF_NOT_MATCH, headerCsrf, jwtCsrf);
+                    setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED,
+                            HEADER_CSRF_JWT_CSRF_NOT_MATCH, "CSRF_VALIDATION_FAILED",
+                            "Header and session CSRF values do not match."));
                     return;
                 }
                 // renew the token 1.5 minute before it is expired to keep the session if the user is still using it
@@ -241,7 +253,6 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 jwt = renewToken(exchange, exchange.getRequestCookie(REFRESH_TOKEN), config);
             }
 
-            if(logger.isDebugEnabled()) logger.debug("jwt = {}", jwt);
             if(jwt != null) exchange.getRequestHeaders().put(Headers.AUTHORIZATION, "Bearer " + jwt);
             // if there is no jwt and refresh token available in the cookies, the user not logged in or
             // the session is expired. Or the endpoint that is trying to access doesn't need a token
@@ -406,9 +417,8 @@ public class StatelessAuthHandler implements MiddlewareHandler {
             scopes = claims.getStringListClaimValue(SCP);
             host = claims.getStringClaimValue(Constants.HOST);
             email = claims.getStringClaimValue(Constants.EML);
-        } catch (InvalidJwtException e) {
-            logger.error("Exception: ", e);
-            setExchangeStatus(exchange, INVALID_AUTH_TOKEN);
+        } catch (InvalidJwtException ignored) {
+            rejectInvalidToken(exchange);
             return null;
         }
 
@@ -490,6 +500,12 @@ public class StatelessAuthHandler implements MiddlewareHandler {
                 .setSameSiteMode(CookieSameSiteMode.NONE.toString())
                 .setSecure(config.cookieSecure));
         return scopes;
+    }
+
+    private void rejectInvalidToken(HttpServerExchange exchange) {
+        // Verifier exceptions may embed raw JWTs or claims; expose only a fixed rejection.
+        setExchangeStatus(exchange, new Status(StatusCodes.UNAUTHORIZED, INVALID_AUTH_TOKEN,
+                "INVALID_AUTH_TOKEN", "Token failed verification."));
     }
 
     @Override
