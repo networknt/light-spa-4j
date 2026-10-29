@@ -77,6 +77,7 @@ public class StatelessAuthHandlerTest {
 
     static Undertow authServer = null;
     static Undertow tokenServer = null;
+    static volatile String responseRefreshCanary;
     static volatile boolean rejectIssuedToken;
     // this is to simulate the randomly generated csrfToken for testing only to ensure
     // both header csrf and jwt csrf tokens are the same.
@@ -204,6 +205,7 @@ public class StatelessAuthHandlerTest {
             Map<String, Object> map = new HashMap<>();
             String token = getJwt(600, csrfValue != null ? csrfValue : csrfToken);
             map.put("access_token", rejectIssuedToken ? "a28-invalid-issued-token" : token);
+            if (responseRefreshCanary != null) map.put("refresh_token", responseRefreshCanary);
             map.put("token_type", "Bearer");
             map.put("expires_in", 600);
             exchange.getResponseHeaders().put(Headers.CONTENT_TYPE, "application/json");
@@ -243,6 +245,34 @@ public class StatelessAuthHandlerTest {
                     Config.getInstance().getMapper().readTree(response.body()));
             Assertions.assertTrue(response.headers().allValues("Set-Cookie").isEmpty());
         } finally { rejectIssuedToken = false; }
+    }
+
+    @Test
+    public void callbackCodeAndTokenResultStayOutOfTraceLogs() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(StatelessAuthHandler.class);
+        var previous = logger.getLevel();
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        logs.start(); logger.addAppender(logs); logger.setLevel(ch.qos.logback.classic.Level.TRACE);
+        responseRefreshCanary = "callback-refresh-secret-canary";
+        try (var http = java.net.http.HttpClient.newBuilder().sslContext(
+                createSSLContext(loadKeyStore("client.keystore"), loadKeyStore("client.truststore"), true))
+                .connectTimeout(java.time.Duration.ofSeconds(3)).build()) {
+            var request = java.net.http.HttpRequest.newBuilder(URI.create(
+                    "https://localhost:7080/authorization?code=callback-code-secret-canary&state=callback-state-secret-canary"))
+                    .timeout(java.time.Duration.ofSeconds(10)).GET().build();
+            var response = http.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            Assertions.assertEquals(200, response.statusCode());
+            for (var event : logs.list) {
+                for (String marker : java.util.List.of("callback-code-secret-canary", "callback-state-secret-canary", "callback-refresh-secret-canary")) {
+                    Assertions.assertFalse(event.getFormattedMessage().contains(marker), "Callback secret leaked in log");
+                    if (event.getArgumentArray() != null) for (Object argument : event.getArgumentArray())
+                        Assertions.assertFalse(String.valueOf(argument).contains(marker), "Callback secret retained in log argument");
+                }
+            }
+        } finally {
+            responseRefreshCanary = null;
+            logger.detachAppender(logs); logger.setLevel(previous); logs.stop();
+        }
     }
 
     @Test

@@ -159,8 +159,8 @@ public class MsalTokenExchangeHandler implements MiddlewareHandler {
 
             Result<TokenResponse> result = OauthHelper.getTokenFromTokenExchangeResult(request);
             if (result.isFailure()) {
-                logger.error("Token exchange failed with status: {}", result.getError());
-                setExchangeStatus(exchange, TOKEN_EXCHANGE_FAILED, result.getError().getDescription());
+                logger.error("Token exchange failed; HTTP status {}", result.getError().getStatusCode());
+                setExchangeStatus(exchange, TOKEN_EXCHANGE_FAILED, "OAuth provider rejected the token exchange");
                 return;
             }
 

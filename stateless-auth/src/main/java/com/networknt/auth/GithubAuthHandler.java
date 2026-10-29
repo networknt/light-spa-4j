@@ -23,7 +23,6 @@ public class GithubAuthHandler extends StatelessAuthHandler implements Middlewar
             if(!requireCallbackGet(exchange)) return;
             Deque<String> deque = exchange.getQueryParameters().get(CODE);
             String code = deque == null ? null : deque.getFirst();
-            if (logger.isDebugEnabled()) logger.debug("code = " + code);
             // check if code is in the query parameter
             if (code == null || code.trim().length() == 0) {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
