@@ -24,7 +24,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -63,31 +62,31 @@ class StatelessSessionLoggingTest {
     }
     @Test void mismatchedSubmittedCsrfIsNotReflectedOrLogged() throws Exception {
         probe.watch.add("a28-header-csrf-canary");
-        assertEquals(401, probe.request(token(CSRF), "a28-header-csrf-canary", "").statusCode());
+        assertError(probe.request(token(CSRF), "a28-header-csrf-canary", ""), "ERR10039", "[redacted]", "[redacted]");
     }
     @Test void decodedQueryControlCharactersCannotForgeTheCsrfDiagnostic() throws Exception {
         String input = "a28-query-csrf-canary\r\nforged-line=1";
         probe.watch.add("a28-query-csrf-canary");
-        assertEquals(401, probe.request(token(CSRF), null,
-                "?csrf=" + URLEncoder.encode(input, StandardCharsets.UTF_8)).statusCode());
+        assertError(probe.request(token(CSRF), null,
+                "?csrf=" + URLEncoder.encode(input, StandardCharsets.UTF_8)), "ERR10039", "[redacted]", "[redacted]");
     }
     @Test void signedClaimControlCharactersAreNotReflectedOrLogged() throws Exception {
         String claim = "a28-claim-csrf-canary\r\nforged-line=1";
         probe.watch.add("a28-claim-csrf-canary");
-        assertEquals(401, probe.request(token(claim), CSRF, "").statusCode());
+        assertError(probe.request(token(claim), CSRF, ""), "ERR10039", "[redacted]", "[redacted]");
     }
     @Test void malformedAndTamperedCookieTokensAreRejectedWithoutRawThrowableLogs() throws Exception {
-        assertEquals(401, probe.request("a28-malformed-token-canary", CSRF, "").statusCode());
+        assertError(probe.request("a28-malformed-token-canary", CSRF, ""), "ERR10000");
         String valid = token(CSRF);
         int signature = valid.lastIndexOf('.') + 1;
         String tampered = valid.substring(0, signature) + (valid.charAt(signature) == 'A' ? 'B' : 'A')
                 + valid.substring(signature + 1);
-        assertEquals(401, probe.request(tampered, CSRF, "").statusCode());
+        assertError(probe.request(tampered, CSRF, ""), "ERR10000");
     }
     @Test void invalidIssuedTokenCannotReachCookieIssuanceLogs() throws Exception {
         probe.issuedToken = "a28-issued-token-canary\r\nforged-line=1";
         probe.watch.add("a28-issued-token-canary");
-        assertEquals(401, probe.request(null, null, "/issued").statusCode());
+        assertError(probe.request(null, null, "/issued"), "ERR10000");
     }
 
     @Test void keyResolutionFailureIsRedactedAndRetainsServerError() throws Exception {
@@ -101,6 +100,59 @@ class StatelessSessionLoggingTest {
             }
         });
         assertEquals(500, probe.request(token(CSRF), CSRF, "").statusCode());
+        assertTrue(probe.logs.list.stream().anyMatch(e -> e.getFormattedMessage().contains("key resolution failed: VerificationException")));
+    }
+
+    private static void assertError(HttpResponse<String> response, String code, Object... args) {
+        com.networknt.status.Status expected = new com.networknt.status.Status(code, args);
+        assertEquals(expected.getStatusCode(), response.statusCode());
+        assertEquals(com.networknt.config.JsonMapper.fromJson(expected.toString(), Map.class),
+                com.networknt.config.JsonMapper.fromJson(response.body(), Map.class));
+    }
+
+    @Test void missingCsrfRetainsConfiguredError() throws Exception {
+        assertError(probe.request(token(CSRF), null, ""), "ERR10036");
+    }
+
+    @Test void expiredTokenRetainsExpirySignalWithoutLeakingException() throws Exception {
+        Field field = StatelessAuthHandler.class.getDeclaredField("jwtVerifier");
+        field.setAccessible(true);
+        field.set(null, new LocalLegacyVerifier() {
+            @Override public JwtClaims verifyJwt(String jwt, boolean ignoreExpiry, boolean token,
+                    String prefix, String path, List<String> services) throws ExpiredTokenException {
+                throw new ExpiredTokenException("a28-expired-token-canary");
+            }
+        });
+        probe.watch.add("a28-expired-token-canary");
+        assertError(probe.request(token(CSRF), CSRF, ""), "ERR10001");
+    }
+
+    @Test void cachedVerificationDoesNotLogCredentials() throws Exception {
+        LocalLegacyVerifier verifier = new LocalLegacyVerifier();
+        Map<String, Object> entries = new HashMap<>();
+        java.util.concurrent.atomic.AtomicInteger hits = new java.util.concurrent.atomic.AtomicInteger();
+        var cache = (com.networknt.cache.CacheManager) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{com.networknt.cache.CacheManager.class}, (proxy, method, args) -> {
+                    return switch (method.getName()) {
+                        case "get" -> { Object value = entries.get((String) args[1]); if (value != null) hits.incrementAndGet(); yield value; }
+                        case "put" -> { entries.put((String) args[1], args[2]); yield null; }
+                        case "getSize" -> entries.size();
+                        default -> throw new UnsupportedOperationException(method.getName());
+                    };
+                });
+        Field enabled = JwtVerifier.class.getDeclaredField("enableJwtCache");
+        enabled.setAccessible(true);
+        enabled.set(verifier, true);
+        Field manager = JwtVerifier.class.getDeclaredField("cacheManager");
+        manager.setAccessible(true);
+        manager.set(verifier, cache);
+        Field field = StatelessAuthHandler.class.getDeclaredField("jwtVerifier");
+        field.setAccessible(true);
+        field.set(null, verifier);
+        String jwt = token(CSRF);
+        assertEquals(200, probe.request(jwt, CSRF, "").statusCode());
+        assertEquals(200, probe.request(jwt, CSRF, "").statusCode());
+        assertTrue(hits.get() > 0, "second request must use the real verifier cache-hit path");
     }
 
     private String token(String csrf) throws Exception {
@@ -154,8 +206,8 @@ class StatelessSessionLoggingTest {
             Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
             Level oldRoot = root.getLevel();
             restore.add(() -> root.setLevel(oldRoot));
-            root.setLevel(Level.WARN);
-            for (String name : new String[]{StatelessAuthHandler.class.getName(), "com.networknt.handler.LightHttpHandler"}) {
+            root.setLevel(Level.TRACE);
+            for (String name : new String[]{"com.networknt", "org.jose4j", "io.undertow"}) {
                 Logger logger = (Logger) LoggerFactory.getLogger(name);
                 Level level = logger.getLevel();
                 restore.add(() -> logger.setLevel(level));
@@ -188,13 +240,6 @@ class StatelessSessionLoggingTest {
 
         void installTrust(StatelessAuthConfig config, Class<?> handler) throws Exception {
             // Only remote key acquisition is replaced; verification uses the branch's actual verifier.
-            for (Field field : JwtVerifier.class.getDeclaredFields()) {
-                if (Modifier.isStatic(field.getModifiers()) && !Modifier.isFinal(field.getModifiers())) {
-                    field.setAccessible(true);
-                    Object previous = field.get(null);
-                    restore.add(() -> field.set(null, previous));
-                }
-            }
             Field field = handler.getDeclaredField("jwtVerifier");
             field.setAccessible(true);
             Object previous = field.get(null);

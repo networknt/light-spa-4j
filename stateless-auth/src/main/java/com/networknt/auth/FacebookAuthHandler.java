@@ -40,7 +40,6 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
             if(!requireCallbackGet(exchange)) return;
             Deque<String> deque = exchange.getQueryParameters().get(ACCESS_TOKEN);
             String accessToken = deque == null ? null : deque.getFirst();
-            if (logger.isDebugEnabled()) logger.debug("access_token = " + accessToken);
             // check if code is in the query parameter
             if (accessToken == null || accessToken.trim().length() == 0) {
                 setExchangeStatus(exchange, AUTHORIZATION_CODE_MISSING);
@@ -86,6 +85,7 @@ public class FacebookAuthHandler extends StatelessAuthHandler implements Middlew
                     return;
                 }
                 List scopes = setCookies(exchange, result.getResult(), csrf, config);
+                if (exchange.isComplete() || exchange.getStatusCode() >= 400) return;
                 if (config.getRedirectUri() != null && config.getRedirectUri().length() > 0) {
                     exchange.setStatusCode(StatusCodes.OK);
                     Map<String, Object> rs = new HashMap<>();
