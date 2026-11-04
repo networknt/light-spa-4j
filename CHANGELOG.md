@@ -1,5 +1,24 @@
 # Change Log
 
+## [2.5.0](https://github.com/networknt/light-spa-4j/tree/2.5.0) (2026-11-04)
+
+**Commits:**
+
+- upgrade to version 2.5.0 before release in 2.x branch ([c3faacf](https://github.com/networknt/light-spa-4j/commit/c3faacfff51b86134392124ce3f15d31faaa6535)) (by Steve Hu)
+- upgrade to version 2.5.0-SNAPSHOT after release in 2.x branch ([9ccd78c](https://github.com/networknt/light-spa-4j/commit/9ccd78c677898679b3d845d79aa02ceaf133b81e)) (by Steve Hu)
+- upgrade encoder to 1.6.0 from 1.5.0 ([a0d8f2b](https://github.com/networknt/light-spa-4j/commit/a0d8f2b39e643d3a44b5a9f9627fca0abfdf913f)) (by Steve Hu)
+- upgrade jackson to 2.22.4 from 2.22.3 ([48281af](https://github.com/networknt/light-spa-4j/commit/48281af1b0649946e3cb3173dd6071e26c24d508)) (by Steve Hu)
+- upgrade logback to 1.6.6 from 1.6.5 ([7d0ad1e](https://github.com/networknt/light-spa-4j/commit/7d0ad1e9b1c8f40ddd159a699ec2de9cfbab16a2)) (by Steve Hu)
+- \[2.x\] Redact OAuth callback and provider diagnostics (#193) ([68d2aa2](https://github.com/networknt/light-spa-4j/commit/68d2aa293d5c17fda91c63395fbc01176658d61d)) (by Steve Hu)
+- \[2.x\] Redact SPA session diagnostics and preserve configured errors (A28) (#190) ([277feab](https://github.com/networknt/light-spa-4j/commit/277feab66218932d2e8518114a1957cc8454a03c)) (by Steve Hu)
+- fix(msal-auth): isolate signing keys from shared verifier state ([1eaf0cd](https://github.com/networknt/light-spa-4j/commit/1eaf0cdfe84d8f19a1a7487acb20a84ed9f3ea68)) (by Steve Hu)
+- fix(msal-auth): keep sessions on key-lookup failure, skip policy parsing when disabled ([bcbab0c](https://github.com/networknt/light-spa-4j/commit/bcbab0c8b58db4c950e203f2abfebd453ea9d1c7)) (by Steve Hu)
+- fix(msal-auth): address trust policy review findings ([5daa3b4](https://github.com/networknt/light-spa-4j/commit/5daa3b43b6a03be62d17ce1f9f398f7085d0068e)) (by Steve Hu)
+- fix(msal-auth): enforce Microsoft token trust policy (#173) ([1d35454](https://github.com/networknt/light-spa-4j/commit/1d35454abfa711529c426c691d4f7143b1d7af8e)) (by Steve Hu)
+- upgrade maven-version to 2.23.0 from 2.22.0 ([354a1a5](https://github.com/networknt/light-spa-4j/commit/354a1a5e607929c77aa14dcc1fcac981d4bda97d)) (by Steve Hu)
+- upgrade caffeine to 3.3.1 from 3.3.0 ([e670de4](https://github.com/networknt/light-spa-4j/commit/e670de42fb805cd332ce2fb32326ddd841060915)) (by Steve Hu)
+- upgrade to version 2.4.2-SNAPSHOT after release in master branch ([9b90dfd](https://github.com/networknt/light-spa-4j/commit/9b90dfd4659d56e17b1e8935a6b8cdade05f6a7f)) (by Steve Hu)
+
 ## [2.4.1](https://github.com/networknt/light-spa-4j/tree/2.4.1) (2026-10-11)
 
 **Commits:**
